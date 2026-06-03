@@ -1424,10 +1424,41 @@ if (!API_BASE && /github\.io$/.test(location.hostname)) {
   );
 }
 
-// ---- PWA: service worker + install prompt ----------------------------------
+// ---- PWA: service worker + auto-update -------------------------------------
 if ('serviceWorker' in navigator) {
+  let updateReady = false;
+  let refreshing = false;
+
+  // When a newly-installed worker takes control, reload once to pick up the
+  // new version. Guarded by updateReady so the first install doesn't reload.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!updateReady || refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker
+      .register('sw.js')
+      .then((reg) => {
+        reg.update().catch(() => {});
+        // Re-check for a new version whenever the app returns to the foreground.
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) reg.update().catch(() => {});
+        });
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', () => {
+            // controller exists => this is an update, not the first install.
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              updateReady = true;
+              setStatus('Updating to the latest version…', 'busy');
+            }
+          });
+        });
+      })
+      .catch(() => {});
   });
 }
 
