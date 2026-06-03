@@ -4,6 +4,25 @@
 // accidental navigation while you're walking the aisles won't lose your list.
 
 const STORAGE_KEY = 'krogerbuddy.v1';
+const API_BASE_KEY = 'krogerbuddy.apiBase';
+
+// Where the Kroger proxy lives. Same-origin "" works for local `npm start`;
+// on GitHub Pages this points at the Cloudflare Worker (set in config.js, or
+// overridden once via a ?api=<url> query param).
+const API_BASE = resolveApiBase();
+
+function resolveApiBase() {
+  try {
+    const fromQuery = new URLSearchParams(location.search).get('api');
+    if (fromQuery) localStorage.setItem(API_BASE_KEY, fromQuery.replace(/\/$/, ''));
+    const stored = localStorage.getItem(API_BASE_KEY);
+    const configured =
+      (window.KROGERBUDDY_CONFIG && window.KROGERBUDDY_CONFIG.apiBase) || '';
+    return (configured || stored || '').replace(/\/$/, '');
+  } catch (_) {
+    return '';
+  }
+}
 
 const state = loadState();
 
@@ -207,7 +226,7 @@ async function lookupUpc(upc) {
   setStatus(`Looking up ${upc}…`, 'busy');
   try {
     const params = state.store ? `?locationId=${encodeURIComponent(state.store.locationId)}` : '';
-    const res = await fetch(`/api/product/${encodeURIComponent(upc)}${params}`);
+    const res = await fetch(`${API_BASE}/api/product/${encodeURIComponent(upc)}${params}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Lookup failed');
 
@@ -313,7 +332,7 @@ function closeStoreModal() {
 async function searchStores(zip) {
   els.storeResults.innerHTML = '<li class="empty-hint">Searching…</li>';
   try {
-    const res = await fetch(`/api/locations?zip=${encodeURIComponent(zip)}`);
+    const res = await fetch(`${API_BASE}/api/locations?zip=${encodeURIComponent(zip)}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Search failed');
     renderStoreOptions(data.locations);
@@ -397,3 +416,12 @@ els.storeForm.addEventListener('submit', (e) => {
 
 // ---- Init ------------------------------------------------------------------
 render();
+
+// On a static host (e.g. GitHub Pages) the app needs to know where its API
+// proxy lives. Surface a clear hint instead of letting lookups silently fail.
+if (!API_BASE && /github\.io$/.test(location.hostname)) {
+  setStatus(
+    'Almost there — set your Cloudflare Worker URL in config.js (or add ?api=<worker-url> to the link) so item lookups work.',
+    'error'
+  );
+}
