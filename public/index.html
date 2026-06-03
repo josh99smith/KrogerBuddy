@@ -19,9 +19,14 @@
         <span class="brand-mark">🛒</span>
         <h1>KrogerBuddy</h1>
       </div>
-      <button id="storeBtn" class="store-chip" type="button">
-        <span id="storeLabel">Pick a store</span>
-      </button>
+      <div class="header-actions">
+        <button id="tripsBtn" class="icon-chip hidden" type="button" aria-label="Saved trips">
+          🗂️ <span id="tripCount" class="count">0</span>
+        </button>
+        <button id="storeBtn" class="store-chip" type="button">
+          <span id="storeLabel">Pick a store</span>
+        </button>
+      </div>
     </header>
 
     <main>
@@ -96,6 +101,9 @@
         </div>
         <div class="row grand"><span>Total</span><span id="total">$0.00</span></div>
       </div>
+      <button id="finishTripBtn" class="primary-btn finish-btn" type="button">
+        ✓ Finish &amp; save trip
+      </button>
     </footer>
 
     <!-- Store picker modal -->
@@ -115,6 +123,19 @@
         </form>
         <ul id="storeResults" class="store-results"></ul>
         <button id="closeStoreBtn" class="ghost-btn" type="button">Close</button>
+      </div>
+    </div>
+
+    <!-- Saved trips modal -->
+    <div id="tripsModal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Saved trips</h3>
+        <p class="modal-sub">Your completed shopping trips, saved on this device.</p>
+        <ul id="tripsList" class="trips-list"></ul>
+        <button id="exportTripsBtn" class="secondary-btn export-btn" type="button">
+          ⬇ Export all (JSON)
+        </button>
+        <button id="closeTripsBtn" class="ghost-btn" type="button">Close</button>
       </div>
     </div>
 
@@ -142,7 +163,7 @@
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=7"></script>
-    <script src="app.js?v=7"></script>
+    <script src="config.js?v=8"></script>
+    <script src="app.js?v=8"></script>
   </body>
 </html>

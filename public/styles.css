@@ -25,8 +25,8 @@ html, body {
 
 body {
   min-height: 100vh;
-  /* Leave room for the sticky totals footer. */
-  padding-bottom: 150px;
+  /* Leave room for the sticky totals footer (incl. the finish-trip button). */
+  padding-bottom: 210px;
 }
 
 /* Header */
@@ -59,6 +59,19 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.icon-chip {
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.icon-chip .count { background: #fff; color: var(--kroger-blue); margin-left: 2px; }
 
 main { padding: 16px; max-width: 680px; margin: 0 auto; }
 
@@ -193,6 +206,22 @@ button { font-family: inherit; cursor: pointer; }
 .row span:last-child { color: var(--text); font-weight: 600; }
 .row.grand { font-size: 20px; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .row.grand span { color: var(--text); font-weight: 800; }
+.finish-btn { width: 100%; margin-top: 10px; }
+.export-btn { width: 100%; margin-bottom: 10px; }
+
+/* Saved trips */
+.trips-list { list-style: none; margin: 0 0 12px; padding: 0; }
+.trip-item { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
+.trip-item summary { list-style: none; cursor: pointer; padding: 12px; }
+.trip-item summary::-webkit-details-marker { display: none; }
+.trip-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.trip-when { font-weight: 700; font-size: 14px; }
+.trip-store { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.trip-total { font-weight: 800; font-size: 16px; }
+.trip-details { padding: 0 12px 12px; border-top: 1px solid var(--line); }
+.trip-line { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 5px 0; color: var(--text); }
+.trip-line.trip-tax { color: var(--muted); border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 8px; }
+.trip-details .remove-btn { margin-top: 10px; }
 .tax-input { width: 52px; padding: 3px 6px; font-size: 13px; text-align: right; display: inline-block; margin: 0 2px; }
 .tax-row span:first-child { display: flex; align-items: center; gap: 2px; }
 

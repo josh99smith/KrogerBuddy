@@ -58,6 +58,23 @@ function saveState() {
   } catch (_) {}
 }
 
+// ---- Saved trips -----------------------------------------------------------
+// Completed shopping trips are archived under their own key so the data
+// survives and is available for future features (history, reorder, etc.).
+const TRIPS_KEY = 'krogerbuddy.trips';
+function loadTrips() {
+  try {
+    const raw = localStorage.getItem(TRIPS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return [];
+}
+function saveTrips(trips) {
+  try {
+    localStorage.setItem(TRIPS_KEY, JSON.stringify(trips));
+  } catch (_) {}
+}
+
 // ---- Element refs ----------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -90,6 +107,13 @@ const els = {
   cameraSelect: $('cameraSelect'),
   zoomWrap: $('zoomWrap'),
   zoomRange: $('zoomRange'),
+  finishTripBtn: $('finishTripBtn'),
+  tripsBtn: $('tripsBtn'),
+  tripCount: $('tripCount'),
+  tripsModal: $('tripsModal'),
+  tripsList: $('tripsList'),
+  closeTripsBtn: $('closeTripsBtn'),
+  exportTripsBtn: $('exportTripsBtn'),
 };
 
 // ---- Helpers ---------------------------------------------------------------
@@ -160,23 +184,155 @@ function render() {
   els.itemCount.textContent = count;
   els.emptyHint.classList.toggle('hidden', state.cart.length > 0);
 
-  let subtotal = 0;
-  let taxableBase = 0;
-
   for (const item of state.cart) {
-    const unit = unitPrice(item);
-    const line = unit * item.qty;
-    subtotal += line;
-    if (item.taxable) taxableBase += line;
-    els.cartList.appendChild(renderItem(item, line));
+    els.cartList.appendChild(renderItem(item, unitPrice(item) * item.qty));
   }
 
-  const rate = Number(state.taxRate) || 0;
-  const tax = taxableBase * (rate / 100);
-
+  const { subtotal, tax, total } = computeTotals();
   els.subtotal.textContent = money(subtotal);
   els.taxAmount.textContent = money(tax);
-  els.total.textContent = money(subtotal + tax);
+  els.total.textContent = money(total);
+}
+
+// Subtotal, tax (on the taxable portion), and grand total for the current cart.
+function computeTotals() {
+  let subtotal = 0;
+  let taxableBase = 0;
+  for (const item of state.cart) {
+    const line = unitPrice(item) * item.qty;
+    subtotal += line;
+    if (item.taxable) taxableBase += line;
+  }
+  const rate = Number(state.taxRate) || 0;
+  const tax = taxableBase * (rate / 100);
+  return { subtotal, tax, total: subtotal + tax };
+}
+
+// ---- Finish & save a trip --------------------------------------------------
+function finishTrip() {
+  if (!state.cart.length) {
+    setStatus('Cart is empty — nothing to save yet.', '');
+    return;
+  }
+  const { subtotal, tax, total } = computeTotals();
+  const itemCount = state.cart.reduce((n, i) => n + i.qty, 0);
+  const trip = {
+    id: Date.now(),
+    savedAt: new Date().toISOString(),
+    store: state.store ? { ...state.store } : null,
+    taxRate: Number(state.taxRate) || 0,
+    subtotal,
+    tax,
+    total,
+    itemCount,
+    items: state.cart.map((i) => ({
+      upc: i.upc,
+      description: i.description,
+      brand: i.brand,
+      size: i.size,
+      qty: i.qty,
+      regularPrice: i.regularPrice,
+      promoPrice: i.promoPrice,
+      unitPrice: unitPrice(i),
+      taxable: i.taxable,
+    })),
+  };
+
+  const trips = loadTrips();
+  trips.unshift(trip);
+  saveTrips(trips);
+
+  // Start a fresh cart for the next trip, but keep the store and tax rate.
+  state.cart = [];
+  saveState();
+  render();
+  updateTripBadge();
+  setStatus(`Trip saved — ${itemCount} items, ${money(total)}. Cart cleared for your next trip.`, 'ok');
+}
+
+function updateTripBadge() {
+  const n = loadTrips().length;
+  els.tripCount.textContent = n;
+  els.tripsBtn.classList.toggle('hidden', n === 0);
+}
+
+function renderTrips() {
+  const trips = loadTrips();
+  els.tripCount.textContent = trips.length;
+  els.exportTripsBtn.disabled = trips.length === 0;
+  if (!trips.length) {
+    els.tripsList.innerHTML =
+      '<li class="empty-hint">No saved trips yet. Tap “Finish &amp; save trip” after shopping.</li>';
+    return;
+  }
+  els.tripsList.innerHTML = '';
+  for (const trip of trips) {
+    const li = document.createElement('li');
+    li.className = 'trip-item';
+    const when = new Date(trip.savedAt).toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    const storeName = trip.store ? trip.store.name : 'No store';
+    const itemsHtml = trip.items
+      .map(
+        (it) =>
+          `<div class="trip-line"><span>${it.qty}× ${escapeHtml(it.description)}</span><span>${money(
+            it.unitPrice * it.qty
+          )}</span></div>`
+      )
+      .join('');
+    li.innerHTML = `
+      <details>
+        <summary>
+          <div class="trip-summary">
+            <div>
+              <div class="trip-when">${when}</div>
+              <div class="trip-store">${escapeHtml(storeName)} · ${trip.itemCount} items</div>
+            </div>
+            <div class="trip-total">${money(trip.total)}</div>
+          </div>
+        </summary>
+        <div class="trip-details">
+          ${itemsHtml}
+          <div class="trip-line trip-tax"><span>Tax (${trip.taxRate}%)</span><span>${money(trip.tax)}</span></div>
+          <button type="button" class="remove-btn" data-del="${trip.id}">Delete this trip</button>
+        </div>
+      </details>
+    `;
+    li.querySelector('[data-del]').addEventListener('click', () => {
+      if (confirm('Delete this saved trip?')) {
+        saveTrips(loadTrips().filter((t) => t.id !== trip.id));
+        renderTrips();
+      }
+    });
+    els.tripsList.appendChild(li);
+  }
+}
+
+// Download all saved trips as JSON so the data is portable / future-proof.
+function exportTrips() {
+  const trips = loadTrips();
+  if (!trips.length) return;
+  const blob = new Blob([JSON.stringify(trips, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `krogerbuddy-trips-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function openTripsModal() {
+  renderTrips();
+  els.tripsModal.classList.remove('hidden');
+}
+function closeTripsModal() {
+  els.tripsModal.classList.add('hidden');
 }
 
 function renderItem(item, line) {
@@ -696,8 +852,17 @@ els.cameraSelect.addEventListener('change', async () => {
 
 els.zoomRange.addEventListener('input', () => applyZoom(els.zoomRange.value));
 
+els.finishTripBtn.addEventListener('click', finishTrip);
+els.tripsBtn.addEventListener('click', openTripsModal);
+els.closeTripsBtn.addEventListener('click', closeTripsModal);
+els.exportTripsBtn.addEventListener('click', exportTrips);
+els.tripsModal.addEventListener('click', (e) => {
+  if (e.target === els.tripsModal) closeTripsModal();
+});
+
 // ---- Init ------------------------------------------------------------------
 render();
+updateTripBadge();
 
 // Debug panel wiring (only when ?debug=1).
 if (DEBUG) {
