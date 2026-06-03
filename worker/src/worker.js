@@ -37,6 +37,30 @@ function json(body, status, env) {
   });
 }
 
+// Kroger's gateway occasionally returns transient 5xx/429 errors ("failure to
+// get peer from the ring balance"). Retry those a couple times with backoff.
+async function fetchRetry(url, options, retries = 2) {
+  let attempt = 0;
+  while (true) {
+    let res;
+    try {
+      res = await fetch(url, options);
+    } catch (err) {
+      if (attempt >= retries) throw err;
+      await sleep(300 * 2 ** attempt);
+      attempt++;
+      continue;
+    }
+    if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && attempt < retries) {
+      await sleep(300 * 2 ** attempt);
+      attempt++;
+      continue;
+    }
+    return res;
+  }
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function getAccessToken(env) {
   const now = Date.now();
   if (tokenCache.accessToken && now < tokenCache.expiresAt) {
@@ -47,7 +71,7 @@ async function getAccessToken(env) {
   const clientSecret = (env && env.KROGER_CLIENT_SECRET) || DEFAULT_CLIENT_SECRET;
   const basic = btoa(`${clientId}:${clientSecret}`);
 
-  const res = await fetch(`${KROGER_BASE}/connect/oauth2/token`, {
+  const res = await fetchRetry(`${KROGER_BASE}/connect/oauth2/token`, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${basic}`,
@@ -71,12 +95,16 @@ async function getAccessToken(env) {
 
 async function authedGet(path, env) {
   const token = await getAccessToken(env);
-  const res = await fetch(`${KROGER_BASE}${path}`, {
+  const res = await fetchRetry(`${KROGER_BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
   if (res.status === 401) tokenCache = { accessToken: null, expiresAt: 0 };
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    // Friendlier message for Kroger-side outages so the UI isn't scary.
+    if (res.status >= 500 || res.status === 429) {
+      throw new ApiError(res.status, `Kroger's servers are busy right now (${res.status}). Please try again in a moment.`);
+    }
     throw new ApiError(res.status, `Kroger API error (${res.status}). ${text}`.trim());
   }
   return res.json();
@@ -196,9 +224,13 @@ async function lookupByProductId(upc, locationId, env) {
   return items.find((p) => upcMatches(p.upc, upc)) || items[0] || null;
 }
 
-// Last-resort fuzzy search by term, kept only as a fallback.
+// Last-resort fuzzy search by term, kept only as a fallback. Limited to a
+// couple of terms to keep request volume (and Kroger-side load) low.
 async function searchExact(upc, locationId, env) {
-  for (const term of upcCandidates(upc)) {
+  const stripped = normUpc(upc);
+  const noCheck = stripped.length > 6 ? stripped.slice(0, -1) : stripped;
+  const terms = [...new Set([stripped, noCheck])].filter((s) => s.length >= 5);
+  for (const term of terms) {
     const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '30' });
     if (locationId) params.set('filter.locationId', locationId);
     const data = await authedGet(`/products?${params}`, env);
@@ -214,13 +246,13 @@ async function handleProduct(upc, searchParams, env) {
   }
   const locationId = (searchParams.get('locationId') || '').trim();
 
-  // Exact productId lookup first (with store for pricing, then without), then
-  // fall back to the fuzzy term search.
+  // Exact productId lookup first (the reliable path: 1 request). Only if that
+  // misses do we try a store-independent productId lookup and a tiny term
+  // search — keeping total requests low to avoid hammering Kroger.
   let match =
     (await lookupByProductId(upc, locationId, env)) ||
     (locationId && (await lookupByProductId(upc, '', env))) ||
-    (await searchExact(upc, locationId, env)) ||
-    (locationId && (await searchExact(upc, '', env)));
+    (await searchExact(upc, locationId, env));
 
   if (!match) {
     return json(

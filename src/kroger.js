@@ -31,7 +31,7 @@ async function getAccessToken() {
     scope: 'product.compact',
   });
 
-  const res = await fetch(`${KROGER_BASE}/connect/oauth2/token`, {
+  const res = await fetchRetry(`${KROGER_BASE}/connect/oauth2/token`, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${basic}`,
@@ -59,7 +59,7 @@ async function getAccessToken() {
 
 async function authedGet(path) {
   const token = await getAccessToken();
-  const res = await fetch(`${KROGER_BASE}${path}`, {
+  const res = await fetchRetry(`${KROGER_BASE}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
@@ -72,9 +72,36 @@ async function authedGet(path) {
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    if (res.status >= 500 || res.status === 429) {
+      throw new ApiError(res.status, `Kroger's servers are busy right now (${res.status}). Please try again in a moment.`);
+    }
     throw new ApiError(res.status, `Kroger API error (${res.status}). ${text}`.trim());
   }
   return res.json();
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Retry transient Kroger gateway errors (5xx/429, "ring balance") with backoff.
+async function fetchRetry(url, options, retries = 2) {
+  let attempt = 0;
+  while (true) {
+    let res;
+    try {
+      res = await fetch(url, options);
+    } catch (err) {
+      if (attempt >= retries) throw err;
+      await sleep(300 * 2 ** attempt);
+      attempt++;
+      continue;
+    }
+    if ([429, 502, 503, 504].includes(res.status) && attempt < retries) {
+      await sleep(300 * 2 ** attempt);
+      attempt++;
+      continue;
+    }
+    return res;
+  }
 }
 
 export class ApiError extends Error {
@@ -164,8 +191,13 @@ async function lookupByProductId(upc, locationId) {
   return items.find((p) => upcMatches(p.upc, upc)) || items[0] || null;
 }
 
+// Last-resort fuzzy search, limited to a couple of terms to keep request
+// volume (and Kroger-side load) low.
 async function searchExact(upc, locationId) {
-  for (const term of upcCandidates(upc)) {
+  const stripped = normUpc(upc);
+  const noCheck = stripped.length > 6 ? stripped.slice(0, -1) : stripped;
+  const terms = [...new Set([stripped, noCheck])].filter((s) => s.length >= 5);
+  for (const term of terms) {
     const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '30' });
     if (locationId) params.set('filter.locationId', locationId);
     const data = await authedGet(`/products?${params}`);
@@ -175,14 +207,13 @@ async function searchExact(upc, locationId) {
   return null;
 }
 
-// Look up a product by UPC. Tries an exact productId lookup first (with store
-// for pricing, then without), then falls back to the fuzzy term search.
+// Look up a product by UPC. Exact productId lookup first (1 request); only on a
+// miss try a store-independent productId lookup and a tiny term search.
 export async function findProductByUpc(upc, locationId) {
   const match =
     (await lookupByProductId(upc, locationId)) ||
     (locationId && (await lookupByProductId(upc, ''))) ||
-    (await searchExact(upc, locationId)) ||
-    (locationId && (await searchExact(upc, '')));
+    (await searchExact(upc, locationId));
   return match ? normalizeProduct(match) : null;
 }
 
