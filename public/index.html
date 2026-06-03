@@ -9,6 +9,7 @@
     <meta name="theme-color" content="#0a4b9c" />
     <title>KrogerBuddy</title>
     <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <link rel="stylesheet" href="styles.css" />
     <!-- Barcode scanning via device camera -->
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -20,6 +21,9 @@
         <h1>KrogerBuddy</h1>
       </div>
       <div class="header-actions">
+        <button id="installBtn" class="icon-chip hidden" type="button" aria-label="Install app">
+          ⬇ Install
+        </button>
         <button id="tripsBtn" class="icon-chip hidden" type="button" aria-label="Saved trips">
           🗂️ <span id="tripCount" class="count">0</span>
         </button>
@@ -200,7 +204,7 @@
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=13"></script>
-    <script src="app.js?v=13"></script>
+    <script src="config.js?v=14"></script>
+    <script src="app.js?v=14"></script>
   </body>
 </html>

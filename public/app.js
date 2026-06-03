@@ -1248,3 +1248,38 @@ if (!API_BASE && /github\.io$/.test(location.hostname)) {
     'error'
   );
 }
+
+// ---- PWA: service worker + install prompt ----------------------------------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+
+// Show our own "Install" button when the browser says the app is installable.
+let deferredInstallPrompt = null;
+const installBtn = document.getElementById('installBtn');
+const standalone =
+  window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (installBtn && !standalone) installBtn.classList.remove('hidden');
+});
+
+if (installBtn) {
+  installBtn.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    try {
+      await deferredInstallPrompt.userChoice;
+    } catch (_) {}
+    deferredInstallPrompt = null;
+    installBtn.classList.add('hidden');
+  });
+}
+
+window.addEventListener('appinstalled', () => {
+  if (installBtn) installBtn.classList.add('hidden');
+});
