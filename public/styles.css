@@ -321,6 +321,7 @@ input[type="range"].zoom::-moz-range-thumb { width: 22px; height: 22px; border-r
 .trip-line .vl { font-weight: 650; font-variant-numeric: tabular-nums; }
 .trip-actions { display: flex; justify-content: flex-end; padding-top: 8px; }
 .empty-hint { color: var(--text-3); text-align: center; padding: var(--sp-5); font-size: var(--fs-sm); }
+.app-credit { text-align: center; color: var(--text-3); font-size: var(--fs-xs); opacity: .75; margin: 4px 0 6px; }
 
 /* ----- Debug panel ----- */
 .debug-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: #0b1220; color: #d6e2f0; border-top: 2px solid var(--brand-solid); max-height: 45vh; display: flex; flex-direction: column; }
