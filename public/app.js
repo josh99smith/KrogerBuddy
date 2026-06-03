@@ -1079,8 +1079,6 @@ async function startScanner() {
   els.scanControls.classList.add('hidden');
   setStatus('Starting camera…', 'busy');
 
-  scanner = new Html5Qrcode('reader');
-
   // Enumerate cameras (also prompts for permission on first use).
   let cameras = [];
   try {
@@ -1088,15 +1086,34 @@ async function startScanner() {
   } catch (_) {}
   populateCameraSelect(cameras);
 
-  // Always default to the rear-facing main camera (focuses up close). Using
-  // facingMode lets the OS pick the proper main lens rather than an ultrawide.
-  let ok = await startWithCamera({ facingMode: { ideal: 'environment' } });
-  if (!ok && scanner) {
-    // Fallback to a specific rear deviceId if the constraint was rejected.
-    const camId = chooseCameraId(cameras);
-    if (camId) ok = await startWithCamera(camId);
+  // Try the main rear camera (facingMode=environment, focuses up close) first,
+  // then a specific rear deviceId. Recreate the scanner between attempts so a
+  // rejected constraint doesn't leave it in a broken state.
+  const targets = [{ facingMode: 'environment' }];
+  const camId = chooseCameraId(cameras);
+  if (camId) targets.push(camId);
+
+  let ok = false;
+  let lastErr = null;
+  for (const t of targets) {
+    try {
+      scanner = new Html5Qrcode('reader');
+      await scanner.start(t, scanConfig, onScanSuccess, () => {});
+      if (typeof t === 'string') currentCameraId = t;
+      ok = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+      try { await scanner.clear(); } catch (_) {}
+      scanner = null;
+    }
   }
-  if (!ok) return; // error already shown
+  if (!ok) {
+    showCameraError(lastErr || {});
+    els.readerWrap.classList.add('hidden');
+    els.scanControls.classList.remove('hidden');
+    return;
+  }
 
   setStatus('Fill the box with the barcode. Use zoom if it won’t focus.', 'busy');
 
