@@ -107,15 +107,17 @@ export async function searchLocations(zip, limit = 8) {
 // check digit removed. We search and match on that.
 const onlyDigits = (u) => (u || '').replace(/\D/g, '');
 const normUpc = (u) => onlyDigits(u).replace(/^0+/, '');
-function coreKey(u) {
-  const n = normUpc(u);
-  return n.length > 6 ? n.slice(0, -1) : n; // drop the check digit when present
-}
+// Two UPCs refer to the same item if, after stripping leading zeros, they're
+// equal — or differ only by a single trailing digit. That covers Kroger
+// storing the core (manufacturer+product) while the printed barcode adds a
+// trailing check digit (e.g. scanned 011110029287 -> 11110029287 vs Kroger
+// 1111002928).
 function upcMatches(itemUpc, scanned) {
-  if (normUpc(itemUpc) === normUpc(scanned)) return true;
-  const a = coreKey(itemUpc);
-  const b = coreKey(scanned);
-  return a.length >= 6 && a === b;
+  const a = normUpc(itemUpc);
+  const b = normUpc(scanned);
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return long.length - short.length === 1 && short.length >= 8 && long.slice(0, -1) === short;
 }
 
 // Digit forms Kroger's search might index a code under.
