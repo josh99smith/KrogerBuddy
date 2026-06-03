@@ -69,6 +69,9 @@ const els = {
   confirmBody: $('confirmBody'),
   confirmYes: $('confirmYes'),
   confirmNo: $('confirmNo'),
+  cameraSelect: $('cameraSelect'),
+  zoomWrap: $('zoomWrap'),
+  zoomRange: $('zoomRange'),
 };
 
 // ---- Helpers ---------------------------------------------------------------
@@ -322,83 +325,146 @@ let lastScan = { code: null, at: 0 };
 // after it's decoded the same way twice, which filters out blurry misreads.
 let recentReads = {};
 
+const CAMERA_ID_KEY = 'krogerbuddy.cameraId';
+let currentCameraId = null;
+
+const scanConfig = {
+  fps: 15,
+  // Wide, short scan window sized to the viewport — matches a barcode's shape.
+  qrbox: (vw) => {
+    const w = Math.min(Math.round(vw * 0.85), 340);
+    return { width: w, height: Math.round(w * 0.5) };
+  },
+  // Only retail barcode symbologies — dropping CODE_128 avoids false hits.
+  formatsToSupport: [
+    Html5QrcodeSupportedFormats.UPC_A,
+    Html5QrcodeSupportedFormats.UPC_E,
+    Html5QrcodeSupportedFormats.EAN_13,
+    Html5QrcodeSupportedFormats.EAN_8,
+  ],
+  // Use the device's native, hardware-accelerated detector when present.
+  experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+};
+
+function showCameraError(err) {
+  const e = err || {};
+  const name = e.name ? ` (${e.name})` : '';
+  const permission = e.name === 'NotAllowedError' || e.name === 'SecurityError';
+  const busy = e.name === 'NotReadableError' || e.name === 'TrackStartError';
+  setStatus(
+    permission
+      ? `Camera permission is blocked${name}. Enable it for this site, or type the UPC manually.`
+      : busy
+      ? `The camera is in use by another app${name}. Close other camera apps and try again.`
+      : `Could not open the camera${name}. Type the UPC manually, or try again.`,
+    'error'
+  );
+}
+
+// Pick which camera to open: a saved preference, else a back/rear lens, else
+// the last camera (on multi-lens phones the main rear cam is often last).
+function chooseCameraId(cameras) {
+  if (!cameras || !cameras.length) return null;
+  const saved = localStorage.getItem(CAMERA_ID_KEY);
+  if (saved && cameras.some((c) => c.id === saved)) return saved;
+  const back = cameras.find((c) => /back|rear|environment/i.test(c.label || ''));
+  return (back || cameras[cameras.length - 1]).id;
+}
+
+function populateCameraSelect(cameras) {
+  if (!cameras || cameras.length < 2) {
+    els.cameraSelect.classList.add('hidden');
+    return;
+  }
+  els.cameraSelect.innerHTML = '';
+  cameras.forEach((c, i) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.label || `Camera ${i + 1}`;
+    els.cameraSelect.appendChild(opt);
+  });
+  const chosen = chooseCameraId(cameras);
+  if (chosen) els.cameraSelect.value = chosen;
+  els.cameraSelect.classList.remove('hidden');
+}
+
+async function startWithCamera(target) {
+  try {
+    await scanner.start(target, scanConfig, onScanSuccess, () => {});
+    if (typeof target === 'string') currentCameraId = target;
+    return true;
+  } catch (err) {
+    // If a specific camera id failed, fall back to a generic rear camera.
+    if (typeof target === 'string') {
+      try {
+        await scanner.start({ facingMode: 'environment' }, scanConfig, onScanSuccess, () => {});
+        return true;
+      } catch (err2) {
+        err = err2;
+      }
+    }
+    showCameraError(err);
+    await stopScanner();
+    return false;
+  }
+}
+
+// Wire up the zoom slider from the live camera's capabilities. Zoom lets you
+// hold the phone farther back (where it can focus) while the barcode still
+// fills the frame — the key fix for close-up focus trouble.
+async function setupZoom() {
+  try {
+    const caps = scanner.getRunningTrackCapabilities();
+    if (caps && caps.zoom && typeof caps.zoom.max === 'number' && caps.zoom.max > (caps.zoom.min || 1)) {
+      const min = caps.zoom.min || 1;
+      const max = caps.zoom.max;
+      els.zoomRange.min = min;
+      els.zoomRange.max = max;
+      els.zoomRange.step = caps.zoom.step || 0.1;
+      // Start a little zoomed in to help with close barcodes.
+      const initial = Math.min(max, Math.max(min, 2));
+      els.zoomRange.value = initial;
+      await applyZoom(initial);
+      els.zoomWrap.classList.remove('hidden');
+    } else {
+      els.zoomWrap.classList.add('hidden');
+    }
+  } catch (_) {
+    els.zoomWrap.classList.add('hidden');
+  }
+}
+
+async function applyZoom(z) {
+  try {
+    await scanner.applyVideoConstraints({ advanced: [{ zoom: Number(z) }] });
+  } catch (_) {}
+}
+
 async function startScanner() {
   els.readerWrap.classList.remove('hidden');
   els.scanControls.classList.add('hidden');
-  setStatus('Hold steady ~6 in. from the barcode…', 'busy');
+  setStatus('Starting camera…', 'busy');
 
   scanner = new Html5Qrcode('reader');
 
-  const config = {
-    fps: 15,
-    // Wide, short scan window sized to the viewport — matches a barcode's shape.
-    qrbox: (vw) => {
-      const w = Math.min(Math.round(vw * 0.85), 340);
-      return { width: w, height: Math.round(w * 0.5) };
-    },
-    // Only retail barcode symbologies — dropping CODE_128 avoids false hits.
-    formatsToSupport: [
-      Html5QrcodeSupportedFormats.UPC_A,
-      Html5QrcodeSupportedFormats.UPC_E,
-      Html5QrcodeSupportedFormats.EAN_13,
-      Html5QrcodeSupportedFormats.EAN_8,
-    ],
-    // Use the device's native, hardware-accelerated detector when present —
-    // it's noticeably faster and more accurate than the JS fallback.
-    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-  };
-
-  // Open the camera with simple, widely-supported constraints first. Some
-  // phones throw OverconstrainedError on strict resolution/focus requests, so
-  // we get a working stream up front and only *then* try to enhance it.
-  let started = false;
-  let lastErr = null;
+  // Enumerate cameras (also prompts for permission on first use).
+  let cameras = [];
   try {
-    await scanner.start({ facingMode: 'environment' }, config, onScanSuccess, () => {});
-    started = true;
-  } catch (err) {
-    lastErr = err;
-    // Fallback: pick a camera directly by id (prefer a rear/back lens).
-    try {
-      const cameras = await Html5Qrcode.getCameras();
-      if (cameras && cameras.length) {
-        const back = cameras.find((c) => /back|rear|environment/i.test(c.label));
-        const id = (back || cameras[cameras.length - 1]).id;
-        await scanner.start(id, config, onScanSuccess, () => {});
-        started = true;
-      }
-    } catch (err2) {
-      lastErr = err2;
-    }
-  }
-
-  if (!started) {
-    const err = lastErr || {};
-    const name = err.name ? ` (${err.name})` : '';
-    const permission =
-      err.name === 'NotAllowedError' || err.name === 'SecurityError';
-    const busy = err.name === 'NotReadableError' || err.name === 'TrackStartError';
-    setStatus(
-      permission
-        ? `Camera permission is blocked${name}. Enable it for this site, or type the UPC manually.`
-        : busy
-        ? `The camera is in use by another app${name}. Close other camera apps and try again, or type the UPC manually.`
-        : `Could not open the camera${name}. Type the UPC manually, or try again.`,
-      'error'
-    );
-    await stopScanner();
-    return;
-  }
-
-  // Camera is live — best-effort sharpen: bump resolution and ask for
-  // continuous autofocus. Failures here are harmless; the stream keeps running.
-  try {
-    await scanner.applyVideoConstraints({
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      advanced: [{ focusMode: 'continuous' }],
-    });
+    cameras = await Html5Qrcode.getCameras();
   } catch (_) {}
+  populateCameraSelect(cameras);
+
+  const camId = chooseCameraId(cameras);
+  const ok = await startWithCamera(camId || { facingMode: 'environment' });
+  if (!ok) return; // error already shown
+
+  setStatus('Fill the box with the barcode. Use zoom if it won’t focus.', 'busy');
+
+  // Best-effort: continuous autofocus, then enable the zoom slider.
+  try {
+    await scanner.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] });
+  } catch (_) {}
+  await setupZoom();
 }
 
 // Validate the GTIN check digit for standard 12/13/14-digit barcodes. This
@@ -564,6 +630,28 @@ els.confirmModal.addEventListener('click', (e) => {
     closeConfirm(true);
   }
 });
+
+// Switch lenses on demand — lets you pick a macro/close-focus camera.
+els.cameraSelect.addEventListener('change', async () => {
+  const id = els.cameraSelect.value;
+  localStorage.setItem(CAMERA_ID_KEY, id);
+  if (!scanner) return;
+  setStatus('Switching camera…', 'busy');
+  try {
+    await scanner.stop();
+  } catch (_) {}
+  els.zoomWrap.classList.add('hidden');
+  const ok = await startWithCamera(id);
+  if (ok) {
+    setStatus('Fill the box with the barcode. Use zoom if it won’t focus.', 'busy');
+    try {
+      await scanner.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    } catch (_) {}
+    await setupZoom();
+  }
+});
+
+els.zoomRange.addEventListener('input', () => applyZoom(els.zoomRange.value));
 
 // ---- Init ------------------------------------------------------------------
 render();

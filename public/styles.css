@@ -72,6 +72,19 @@ main { padding: 16px; max-width: 680px; margin: 0 auto; }
 }
 .reader-wrap { margin-bottom: 12px; }
 #reader { border-radius: 12px; overflow: hidden; }
+.cam-controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.cam-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+}
+.zoom-wrap { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.zoom-wrap input[type='range'] { flex: 1; accent-color: var(--kroger-blue); }
 .scan-controls { display: flex; flex-direction: column; gap: 10px; }
 .manual-form { display: flex; gap: 8px; }
 .manual-form input { flex: 1; }

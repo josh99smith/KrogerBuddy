@@ -29,6 +29,21 @@
       <section class="scan-card">
         <div id="readerWrap" class="reader-wrap hidden">
           <div id="reader"></div>
+          <div class="cam-controls">
+            <select id="cameraSelect" class="cam-select hidden" aria-label="Choose camera"></select>
+            <label id="zoomWrap" class="zoom-wrap hidden">
+              <span aria-hidden="true">🔍</span>
+              <input
+                id="zoomRange"
+                type="range"
+                min="1"
+                max="5"
+                step="0.1"
+                value="1"
+                aria-label="Camera zoom"
+              />
+            </label>
+          </div>
           <button id="stopScanBtn" class="ghost-btn" type="button">Stop camera</button>
         </div>
 
@@ -115,7 +130,7 @@
       </div>
     </div>
 
-    <script src="config.js?v=5"></script>
-    <script src="app.js?v=5"></script>
+    <script src="config.js?v=6"></script>
+    <script src="app.js?v=6"></script>
   </body>
 </html>
