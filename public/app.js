@@ -26,8 +26,8 @@ function resolveApiBase() {
 
 const state = loadState();
 // Backfill settings for states saved before this feature existed.
-if (!state.settings) state.settings = { avgThreshold: 0, avgAlerts: true };
-if (typeof state.settings.avgThreshold !== 'number') state.settings.avgThreshold = 0;
+if (!state.settings) state.settings = { avgThreshold: 250, avgAlerts: true };
+if (typeof state.settings.avgThreshold !== 'number') state.settings.avgThreshold = 250;
 if (typeof state.settings.avgAlerts !== 'boolean') state.settings.avgAlerts = true;
 
 // ---- Debug panel -----------------------------------------------------------
@@ -54,7 +54,7 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch (_) {}
-  return { cart: [], store: null, taxRate: 0, budget: null, settings: { avgThreshold: 0, avgAlerts: true } };
+  return { cart: [], store: null, taxRate: 0, budget: null, settings: { avgThreshold: 250, avgAlerts: true } };
 }
 function saveState() {
   try {
