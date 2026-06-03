@@ -206,8 +206,9 @@ input[type="range"].zoom::-moz-range-thumb { width: 22px; height: 22px; border-r
 .budget { padding: 9px 11px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--border); margin-bottom: 10px; cursor: pointer; }
 .budget-top { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-sm); font-weight: 750; }
 .budget-state { font-variant-numeric: tabular-nums; }
-.budget-bar { height: 8px; border-radius: var(--r-pill); background: var(--sunken); overflow: hidden; margin: 7px 0 5px; }
+.budget-bar { height: 8px; border-radius: var(--r-pill); background: var(--sunken); overflow: hidden; margin: 7px 0 5px; position: relative; }
 .budget-bar i { display: block; height: 100%; background: var(--brand-solid); border-radius: var(--r-pill); transition: width .25s ease; }
+.budget-avg-marker { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); box-shadow: 0 0 0 1px var(--surface); transform: translateX(-1px); border-radius: 1px; }
 .budget-foot { font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
 .budget.warn .budget-bar i { background: var(--warning); }
 .budget.warn .budget-state { color: var(--warning); }

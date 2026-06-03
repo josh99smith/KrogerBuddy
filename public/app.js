@@ -299,15 +299,35 @@ function renderBudget(total) {
       info.level === 'over'
         ? `Over by ${money(info.spent - info.budget)}`
         : `${money(info.remaining)} left`;
+
+    // Marker for the user's average trip total (where they usually land).
+    const avg = avgTripTotal();
+    let marker = '';
+    let avgFoot = '';
+    if (avg > 0) {
+      const mPct = Math.min(100, Math.max(0, (avg / info.budget) * 100));
+      marker = `<span class="budget-avg-marker" style="left:${mPct}%"></span>`;
+      avgFoot = ` · avg trip ${money(avg)}`;
+    }
+
     els.budgetWrap.className = `budget-wrap budget ${info.level}`;
     els.budgetWrap.innerHTML = `
       <div class="budget-top"><span class="budget-lbl">Budget</span><span class="budget-state">${right}</span></div>
-      <div class="budget-bar"><i style="width:${barPct}%"></i></div>
-      <div class="budget-foot">${money(info.spent)} of ${money(info.budget)} · ${Math.round(info.pct)}%</div>
+      <div class="budget-bar"><i style="width:${barPct}%"></i>${marker}</div>
+      <div class="budget-foot">${money(info.spent)} of ${money(info.budget)} · ${Math.round(info.pct)}%${avgFoot}</div>
     `;
   }
   hydrateIcons(els.budgetWrap);
   maybeBudgetAlert(info);
+}
+
+// Average total of the user's qualifying trips (their typical trip spend).
+function avgTripTotal() {
+  const th = Number(state.settings.avgThreshold) || 0;
+  let trips = loadTrips().filter((t) => (t.total || 0) >= th);
+  if (!trips.length) trips = loadTrips(); // fall back to all trips if none qualify
+  if (!trips.length) return 0;
+  return trips.reduce((s, t) => s + (t.total || 0), 0) / trips.length;
 }
 
 function maybeBudgetAlert(info) {
