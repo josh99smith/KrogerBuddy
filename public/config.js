@@ -9,5 +9,5 @@
 // Tip: you can also override this at runtime without editing the file by
 // visiting the site once with ?api=<worker-url> — it'll be remembered.
 window.KROGERBUDDY_CONFIG = {
-  apiBase: '',
+  apiBase: 'https://krogerbuddy.josh99smith.workers.dev',
 };
