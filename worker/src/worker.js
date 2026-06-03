@@ -127,27 +127,45 @@ async function handleLocations(searchParams, env) {
   return json({ locations }, 200, env);
 }
 
+// Normalize a UPC for comparison by dropping leading zeros (UPC-A 12 vs
+// Kroger's 13-digit form, etc).
+const normUpc = (u) => (u || '').replace(/^0+/, '');
+
+// Different digit forms Kroger's search might index this code under.
+function upcCandidates(upc) {
+  const stripped = normUpc(upc);
+  const forms = [upc, stripped, stripped.padStart(12, '0'), stripped.padStart(13, '0')];
+  return [...new Set(forms)].filter((s) => s.length >= 6);
+}
+
+// Search Kroger across candidate UPC forms and return the item whose UPC
+// exactly matches (normalized). Only an exact match is trusted.
+async function searchExact(upc, locationId, env) {
+  for (const term of upcCandidates(upc)) {
+    const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '20' });
+    if (locationId) params.set('filter.locationId', locationId);
+    const data = await authedGet(`/products?${params}`, env);
+    const exact = (data.data || []).find((p) => normUpc(p.upc) === normUpc(upc));
+    if (exact) return exact;
+  }
+  return null;
+}
+
 async function handleProduct(upc, searchParams, env) {
   if (!/^\d{6,14}$/.test(upc)) {
     return json({ error: 'That does not look like a valid UPC barcode.' }, 400, env);
   }
   const locationId = (searchParams.get('locationId') || '').trim();
-  const params = new URLSearchParams({ 'filter.term': upc, 'filter.limit': '5' });
-  if (locationId) params.set('filter.locationId', locationId);
 
-  const data = await authedGet(`/products?${params}`, env);
-  const items = data.data || [];
-  // Only trust an EXACT UPC match. Kroger's term search returns loosely-related
-  // products when there's no real match, so taking the first item would show a
-  // wrong product. Normalize leading zeros (UPC-A 12 vs Kroger's 13-digit form).
-  const norm = (u) => (u || '').replace(/^0+/, '');
-  const exact = items.find((p) => norm(p.upc) === norm(upc));
+  // First try the selected store (gets pricing). If nothing matches there,
+  // retry without a store so we can still identify the item (without price).
+  let exact = await searchExact(upc, locationId, env);
+  if (!exact && locationId) exact = await searchExact(upc, '', env);
+
   if (!exact) {
     return json(
       {
-        error: `Scanned ${upc}, but no exact product match was found${
-          locationId ? ' at this store' : ''
-        }. Try rescanning or enter the UPC manually.`,
+        error: `No Kroger product matches UPC ${upc}. Try rescanning or enter the UPC manually.`,
       },
       404,
       env
