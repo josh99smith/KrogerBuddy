@@ -328,6 +328,26 @@ input[type="range"].zoom::-moz-range-thumb { width: 22px; height: 22px; border-r
 .debug-head button { background: #1d2b45; color: #d6e2f0; border: 1px solid #2c3e5e; border-radius: 6px; padding: 5px 10px; margin-left: 6px; font-size: 12px; }
 .debug-out { margin: 0; padding: 0 12px 12px; overflow: auto; font-size: 11px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; font-family: ui-monospace, Menlo, Consolas, monospace; }
 
+/* ----- Reports ----- */
+.report-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+.stat { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; }
+.stat-v { font-size: var(--fs-xl); font-weight: 800; font-variant-numeric: tabular-nums; }
+.stat-l { font-size: var(--fs-xs); color: var(--text-3); margin-top: 2px; font-weight: 600; }
+.report-section { margin-bottom: 22px; }
+.report-section h4 { margin: 0 0 10px; font-size: var(--fs-md); font-weight: 750; }
+.report-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.report-head h4 { margin: 0; }
+.report-note { font-size: var(--fs-xs); color: var(--text-3); margin: 0 0 12px; }
+.seg { display: inline-flex; background: var(--sunken); border-radius: var(--r-pill); padding: 3px; }
+.seg-btn { border: none; background: transparent; font-family: var(--font); font-size: var(--fs-xs); font-weight: 700; color: var(--text-2); padding: 6px 13px; border-radius: var(--r-pill); cursor: pointer; }
+.seg-btn.is-active { background: var(--surface); color: var(--brand-ink); box-shadow: var(--shadow-sm); }
+.report-bars { display: flex; flex-direction: column; gap: 9px; }
+.rb-row { display: flex; align-items: center; gap: 10px; }
+.rb-label { font-size: var(--fs-sm); color: var(--text-2); width: 62px; flex: none; }
+.rb-track { flex: 1; height: 10px; background: var(--sunken); border-radius: var(--r-pill); overflow: hidden; }
+.rb-track i { display: block; height: 100%; background: var(--brand-solid); border-radius: var(--r-pill); }
+.rb-val { font-size: var(--fs-sm); font-weight: 700; font-variant-numeric: tabular-nums; width: 62px; text-align: right; flex: none; }
+
 /* ----- Install banner (slide-down) ----- */
 .install-banner {
   position: fixed; top: 0; left: 0; right: 0; z-index: 70;

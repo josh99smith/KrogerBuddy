@@ -11,7 +11,7 @@
     <title>KrogerBuddy</title>
     <link rel="manifest" href="manifest.json" />
     <link rel="apple-touch-icon" href="icons/icon-192.png" />
-    <link rel="stylesheet" href="styles.css?v=20" />
+    <link rel="stylesheet" href="styles.css?v=21" />
     <script>
       // Set theme before paint to avoid a flash.
       (function () {
@@ -49,6 +49,7 @@
       <symbol id="i-tag" viewBox="0 0 24 24"><path class="ln" d="M4 11.5V5a1 1 0 0 1 1-1h6.5L20 12.5 12.5 20 4 11.5Z"/><circle cx="8" cy="8" r="1.4"/></symbol>
       <symbol id="i-export" viewBox="0 0 24 24"><path class="ln" d="M12 15V4m0 0 4 4m-4-4-4 4M5 14v4.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V14"/></symbol>
       <symbol id="i-gear" viewBox="0 0 24 24"><circle class="ln" cx="12" cy="12" r="3.2"/><path class="ln" d="M19.1 13a7.6 7.6 0 0 0 0-2l1.7-1.3-1.8-3.1-2 .8a7.5 7.5 0 0 0-1.7-1l-.3-2.1H9.9l-.3 2.1a7.5 7.5 0 0 0-1.7 1l-2-.8-1.8 3.1L5.8 11a7.6 7.6 0 0 0 0 2l-1.7 1.3 1.8 3.1 2-.8a7.5 7.5 0 0 0 1.7 1l.3 2.1h4.2l.3-2.1a7.5 7.5 0 0 0 1.7-1l2 .8 1.8-3.1L19.1 13Z"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path class="ln" d="M4 20V11M9.3 20V6M14.7 20v-6M20 20V9M3 20h18"/></symbol>
       <symbol id="f-beef" viewBox="0 0 24 24"><path d="M5 11.5C5 7.9 8.3 5.5 12.2 5.5S19 7.7 19 11.2c0 3.9-3.4 6.8-7.3 6.8-2.2 0-4-.7-5.2-2 .9-.2 1.6-1 1.6-2a2 2 0 0 0-3-1.7 6 6 0 0 1-.1-.8Z"/><circle cx="13.5" cy="11" r="2" style="fill:var(--brand-tint)"/></symbol>
       <symbol id="f-ground" viewBox="0 0 24 24"><path d="M4 16.5c0-3.8 3.6-6.5 8-6.5s8 2.7 8 6.5v.5H4v-.5Z"/><circle cx="8.5" cy="14.5" r="1"/><circle cx="12.5" cy="13.5" r="1"/><circle cx="15.5" cy="15" r="1"/></symbol>
       <symbol id="f-chicken" viewBox="0 0 24 24"><path d="M14.5 4a5 5 0 0 1 3.8 8.2c-1.6 1.9-4.3 2.2-6.2.9l-4 4a2 2 0 1 1-1.4-1.4l4-4c-1.3-1.9-1-4.6.9-6.2A5 5 0 0 1 14.5 4Z"/></symbol>
@@ -94,6 +95,9 @@
             <button id="tripsBtn" class="iconbtn hidden" type="button" aria-label="Saved trips">
               <svg class="ico" data-ic="i-bookmark" viewBox="0 0 24 24"></svg>
               <span id="tripCount" class="count-badge">0</span>
+            </button>
+            <button id="reportsBtn" class="iconbtn" type="button" aria-label="Reports">
+              <svg class="ico" data-ic="i-chart" viewBox="0 0 24 24"></svg>
             </button>
             <button id="settingsBtn" class="iconbtn" type="button" aria-label="Settings">
               <svg class="ico" data-ic="i-gear" viewBox="0 0 24 24"></svg>
@@ -245,6 +249,33 @@
       </div>
     </div>
 
+    <!-- Reports sheet -->
+    <div id="reportsModal" class="sheet-overlay hidden">
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="sheet-head"><h3>Reports</h3><button id="reportsClose" class="iconbtn" type="button" aria-label="Close"><svg class="ico" data-ic="i-close" viewBox="0 0 24 24"></svg></button></div>
+        <div class="sheet-body">
+          <div id="reportSummary" class="report-summary"></div>
+          <div class="report-section">
+            <div class="report-head">
+              <h4>Spending over time</h4>
+              <div class="seg">
+                <button id="segWeek" class="seg-btn is-active" type="button">Weekly</button>
+                <button id="segMonth" class="seg-btn" type="button">Monthly</button>
+              </div>
+            </div>
+            <div id="reportPeriods" class="report-bars"></div>
+          </div>
+          <div class="report-section">
+            <h4>Average spend by category</h4>
+            <p id="reportAvgNote" class="report-note"></p>
+            <div id="reportCategories" class="report-bars"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings sheet -->
     <div id="settingsModal" class="sheet-overlay hidden">
       <div class="scrim"></div>
@@ -318,7 +349,7 @@
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=20"></script>
-    <script src="app.js?v=20"></script>
+    <script src="config.js?v=21"></script>
+    <script src="app.js?v=21"></script>
   </body>
 </html>

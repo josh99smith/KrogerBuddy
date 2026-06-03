@@ -131,6 +131,15 @@ const els = {
   breakdownSub: $('breakdownSub'),
   breakdownList: $('breakdownList'),
   closeBreakdownBtn: $('closeBreakdownBtn'),
+  reportsBtn: $('reportsBtn'),
+  reportsModal: $('reportsModal'),
+  reportsClose: $('reportsClose'),
+  reportSummary: $('reportSummary'),
+  reportPeriods: $('reportPeriods'),
+  reportCategories: $('reportCategories'),
+  reportAvgNote: $('reportAvgNote'),
+  segWeek: $('segWeek'),
+  segMonth: $('segMonth'),
   settingsBtn: $('settingsBtn'),
   settingsModal: $('settingsModal'),
   settingsClose: $('settingsClose'),
@@ -590,6 +599,114 @@ function saveSettings() {
   closeSettings();
   render();
   setStatus('Settings saved.', 'ok');
+}
+
+// ---- Reports ---------------------------------------------------------------
+let reportMode = 'week';
+const deptName = (key) => {
+  const d = DEPARTMENTS.find((x) => x.key === key);
+  return d ? d.name : key === 'other' ? 'Other' : key;
+};
+
+function reportStats() {
+  const trips = loadTrips();
+  const count = trips.length;
+  const totalSpent = trips.reduce((s, t) => s + (t.total || 0), 0);
+  const items = trips.reduce((s, t) => s + (t.itemCount || 0), 0);
+  const now = new Date();
+  const thisMonth = trips
+    .filter((t) => {
+      const d = new Date(t.savedAt);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    })
+    .reduce((s, t) => s + (t.total || 0), 0);
+  return { count, totalSpent, avgTrip: count ? totalSpent / count : 0, thisMonth };
+}
+
+function startOfWeek(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - x.getDay()); // Sunday
+  return x;
+}
+
+function spendByPeriod(mode) {
+  const groups = new Map();
+  for (const t of loadTrips()) {
+    const d = new Date(t.savedAt);
+    let key, label, sort;
+    if (mode === 'week') {
+      const s = startOfWeek(d);
+      key = s.toISOString().slice(0, 10);
+      label = s.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      sort = s.getTime();
+    } else {
+      key = `${d.getFullYear()}-${d.getMonth()}`;
+      label = d.toLocaleDateString([], { month: 'short', year: '2-digit' });
+      sort = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    }
+    const g = groups.get(key) || { label, total: 0, sort };
+    g.total += t.total || 0;
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((a, b) => a.sort - b.sort).slice(-8);
+}
+
+function barRows(rows) {
+  if (!rows.length) return '<div class="empty-hint">Not enough data yet.</div>';
+  const max = Math.max(...rows.map((r) => r.value), 1);
+  return rows
+    .map(
+      (r) =>
+        `<div class="rb-row"><span class="rb-label">${escapeHtml(r.label)}</span><div class="rb-track"><i style="width:${Math.round((r.value / max) * 100)}%"></i></div><span class="rb-val">${money(r.value)}</span></div>`
+    )
+    .join('');
+}
+
+function renderReports() {
+  const trips = loadTrips();
+  if (!trips.length) {
+    els.reportSummary.innerHTML = '<div class="empty-hint">Finish a few trips to unlock reports.</div>';
+    els.reportPeriods.innerHTML = '';
+    els.reportCategories.innerHTML = '';
+    els.reportAvgNote.textContent = '';
+    return;
+  }
+  const st = reportStats();
+  els.reportSummary.innerHTML = [
+    ['Trips', String(st.count)],
+    ['Total spent', money(st.totalSpent)],
+    ['Avg / trip', money(st.avgTrip)],
+    ['This month', money(st.thisMonth)],
+  ]
+    .map(([l, v]) => `<div class="stat"><div class="stat-v">${v}</div><div class="stat-l">${l}</div></div>`)
+    .join('');
+
+  const periods = spendByPeriod(reportMode).map((p) => ({ label: p.label, value: p.total }));
+  els.reportPeriods.innerHTML = barRows(periods);
+
+  const avgs = categoryAverages();
+  els.reportAvgNote.textContent = avgs.count
+    ? `Per trip across ${avgs.count} trip${avgs.count > 1 ? 's' : ''} of ${money(avgs.threshold)}+`
+    : `No trips of ${money(avgs.threshold)}+ yet — lower the threshold in Settings to include smaller trips.`;
+  const catRows = Object.entries(avgs.byKey)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => ({ label: deptName(k), value: v }));
+  els.reportCategories.innerHTML = avgs.count ? barRows(catRows) : '';
+}
+
+function setReportMode(mode) {
+  reportMode = mode;
+  els.segWeek.classList.toggle('is-active', mode === 'week');
+  els.segMonth.classList.toggle('is-active', mode === 'month');
+  renderReports();
+}
+function openReports() {
+  renderReports();
+  els.reportsModal.classList.remove('hidden');
+}
+function closeReports() {
+  els.reportsModal.classList.add('hidden');
 }
 
 function openBreakdownModal() {
@@ -1464,6 +1581,14 @@ els.closeBreakdownBtn.addEventListener('click', closeBreakdownModal);
 els.breakdownModal.addEventListener('click', (e) => {
   if (e.target.classList.contains('scrim')) closeBreakdownModal();
 });
+
+els.reportsBtn.addEventListener('click', openReports);
+els.reportsClose.addEventListener('click', closeReports);
+els.reportsModal.addEventListener('click', (e) => {
+  if (e.target.classList.contains('scrim')) closeReports();
+});
+els.segWeek.addEventListener('click', () => setReportMode('week'));
+els.segMonth.addEventListener('click', () => setReportMode('month'));
 
 els.settingsBtn.addEventListener('click', openSettings);
 els.settingsClose.addEventListener('click', closeSettings);
