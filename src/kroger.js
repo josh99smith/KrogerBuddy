@@ -136,6 +136,34 @@ function upcCandidates(upc) {
   return [...new Set(forms)].filter((s) => s.length >= 5);
 }
 
+// Kroger productIds are 13-digit numbers (= the upc). Build likely IDs from a
+// scanned barcode: the full GTIN zero-padded, and the core (number-system and
+// check digit removed) zero-padded — how Kroger stores most items, e.g.
+// scanned 011110029287 -> productId 0001111002928.
+function productIdCandidates(upc) {
+  const digits = onlyDigits(upc);
+  const stripped = normUpc(digits);
+  const noCheck = stripped.length > 6 ? stripped.slice(0, -1) : stripped;
+  const ids = new Set([
+    digits.padStart(13, '0'),
+    stripped.padStart(13, '0'),
+    noCheck.padStart(13, '0'),
+  ]);
+  return [...ids].filter((s) => s.length === 13);
+}
+
+// Exact lookup by productId — the correct way to find a specific item, unlike
+// filter.term (a fuzzy keyword search).
+async function lookupByProductId(upc, locationId) {
+  const ids = productIdCandidates(upc);
+  if (!ids.length) return null;
+  const params = new URLSearchParams({ 'filter.productId': ids.join(','), 'filter.limit': '50' });
+  if (locationId) params.set('filter.locationId', locationId);
+  const data = await authedGet(`/products?${params}`);
+  const items = data.data || [];
+  return items.find((p) => upcMatches(p.upc, upc)) || items[0] || null;
+}
+
 async function searchExact(upc, locationId) {
   for (const term of upcCandidates(upc)) {
     const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '30' });
@@ -147,13 +175,15 @@ async function searchExact(upc, locationId) {
   return null;
 }
 
-// Look up a product by UPC. Only an exact UPC match is returned. When a
-// locationId is provided we try that store first (for pricing), then fall back
-// to a store-independent search so the item can still be identified.
+// Look up a product by UPC. Tries an exact productId lookup first (with store
+// for pricing, then without), then falls back to the fuzzy term search.
 export async function findProductByUpc(upc, locationId) {
-  let exact = await searchExact(upc, locationId);
-  if (!exact && locationId) exact = await searchExact(upc, '');
-  return exact ? normalizeProduct(exact) : null;
+  const match =
+    (await lookupByProductId(upc, locationId)) ||
+    (locationId && (await lookupByProductId(upc, ''))) ||
+    (await searchExact(upc, locationId)) ||
+    (locationId && (await searchExact(upc, '')));
+  return match ? normalizeProduct(match) : null;
 }
 
 function normalizeProduct(p) {
