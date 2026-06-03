@@ -1,0 +1,33 @@
+name: Deploy Cloudflare Worker
+
+# Deploys the Kroger API proxy Worker on every change to worker/.
+# Requires two repo secrets:
+#   CLOUDFLARE_API_TOKEN   - token with the "Edit Cloudflare Workers" permission
+#   CLOUDFLARE_ACCOUNT_ID  - your Cloudflare account ID
+
+on:
+  push:
+    branches:
+      - main
+      - claude/kroger-barcode-shopping-app-dUylu
+    paths:
+      - 'worker/**'
+      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
