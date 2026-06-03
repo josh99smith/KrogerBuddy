@@ -174,6 +174,29 @@ async function handleProduct(upc, searchParams, env) {
   return json({ product: normalizeProduct(exact) }, 200, env);
 }
 
+// Diagnostic: show exactly what Kroger returns for each candidate UPC form.
+// Safe to expose (no secrets). Visit /api/debug/<upc>[?locationId=...].
+async function handleDebug(upc, searchParams, env) {
+  const locationId = (searchParams.get('locationId') || '').trim();
+  const results = [];
+  for (const term of upcCandidates(upc)) {
+    const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '20' });
+    if (locationId) params.set('filter.locationId', locationId);
+    try {
+      const data = await authedGet(`/products?${params}`, env);
+      const items = data.data || [];
+      results.push({
+        term,
+        count: items.length,
+        sample: items.slice(0, 8).map((p) => ({ upc: p.upc, description: p.description })),
+      });
+    } catch (err) {
+      results.push({ term, error: err.message });
+    }
+  }
+  return json({ scanned: upc, locationId: locationId || null, results }, 200, env);
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -186,6 +209,10 @@ export default {
     try {
       if (pathname === '/api/health') return json({ ok: true }, 200, env);
       if (pathname === '/api/locations') return await handleLocations(searchParams, env);
+      if (pathname.startsWith('/api/debug/')) {
+        const upc = decodeURIComponent(pathname.slice('/api/debug/'.length)).trim();
+        return await handleDebug(upc, searchParams, env);
+      }
       if (pathname.startsWith('/api/product/')) {
         const upc = decodeURIComponent(pathname.slice('/api/product/'.length)).trim();
         return await handleProduct(upc, searchParams, env);
