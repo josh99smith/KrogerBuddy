@@ -49,9 +49,8 @@ npm start
 # then open http://localhost:3000
 ```
 
-The Kroger credentials are baked into `src/kroger.js` as defaults so it works
-out of the box. You can override them with environment variables if you rotate
-keys:
+Kroger credentials are read **only** from environment variables — they are never
+committed to the repo. Provide them when starting the server:
 
 ```bash
 KROGER_CLIENT_ID=... KROGER_CLIENT_SECRET=... npm start
@@ -85,8 +84,7 @@ npx wrangler login           # one-time, opens a browser
 npx wrangler deploy          # prints your Worker URL
 ```
 
-Keep the credentials out of the repo by setting them as secrets (they override
-the in-code fallbacks):
+Credentials are **required** as Worker secrets (there are no in-code fallbacks):
 
 ```bash
 npx wrangler secret put KROGER_CLIENT_SECRET

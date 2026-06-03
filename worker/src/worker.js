@@ -12,10 +12,9 @@
 
 const KROGER_BASE = 'https://api.kroger.com/v1';
 
-// Fallback credentials so it works without extra setup. Prefer setting these
-// as Worker secrets (see above) so they aren't stored in the repo.
-const DEFAULT_CLIENT_ID = '***REMOVED***';
-const DEFAULT_CLIENT_SECRET = '***REMOVED***';
+// Credentials come ONLY from Cloudflare Worker secrets — never hardcoded.
+//   npx wrangler secret put KROGER_CLIENT_ID
+//   npx wrangler secret put KROGER_CLIENT_SECRET
 
 // Token cache lives on the module scope; it survives between requests handled
 // by the same warm isolate, so we mint far fewer tokens than requests.
@@ -67,8 +66,14 @@ async function getAccessToken(env) {
     return tokenCache.accessToken;
   }
 
-  const clientId = (env && env.KROGER_CLIENT_ID) || DEFAULT_CLIENT_ID;
-  const clientSecret = (env && env.KROGER_CLIENT_SECRET) || DEFAULT_CLIENT_SECRET;
+  const clientId = env && env.KROGER_CLIENT_ID;
+  const clientSecret = env && env.KROGER_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new ApiError(
+      500,
+      'Server is missing Kroger credentials. Set KROGER_CLIENT_ID and KROGER_CLIENT_SECRET as Worker secrets.'
+    );
+  }
   const basic = btoa(`${clientId}:${clientSecret}`);
 
   const res = await fetchRetry(`${KROGER_BASE}/connect/oauth2/token`, {

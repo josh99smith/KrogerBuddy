@@ -7,7 +7,6 @@ compatibility_date = "2024-09-23"
 #   [vars]
 #   ALLOW_ORIGIN = "https://josh99smith.github.io"
 #
-# Credentials are best provided as secrets (they then override the in-code
-# fallbacks and are never stored in the repo):
+# Credentials are REQUIRED as secrets (no in-code fallbacks):
 #   npx wrangler secret put KROGER_CLIENT_SECRET
 #   npx wrangler secret put KROGER_CLIENT_ID

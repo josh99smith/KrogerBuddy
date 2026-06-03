@@ -8,12 +8,10 @@
 
 const KROGER_BASE = process.env.KROGER_API_BASE || 'https://api.kroger.com/v1';
 
-// Credentials. The user asked for these to "just work" with no setup, so they
-// are baked in as defaults — but they live ONLY on the server and are never
-// sent to the browser. Override via environment variables if you rotate them.
-const CLIENT_ID = process.env.KROGER_CLIENT_ID || '***REMOVED***';
-const CLIENT_SECRET =
-  process.env.KROGER_CLIENT_SECRET || '***REMOVED***';
+// Credentials come ONLY from environment variables — never hardcoded.
+//   KROGER_CLIENT_ID, KROGER_CLIENT_SECRET
+const CLIENT_ID = process.env.KROGER_CLIENT_ID;
+const CLIENT_SECRET = process.env.KROGER_CLIENT_SECRET;
 
 // Cached token shared across requests until ~30s before it expires.
 let tokenCache = { accessToken: null, expiresAt: 0 };
@@ -24,6 +22,12 @@ async function getAccessToken() {
     return tokenCache.accessToken;
   }
 
+  if (!CLIENT_ID || !CLIENT_SECRET) {
+    throw new ApiError(
+      500,
+      'Missing Kroger credentials. Set KROGER_CLIENT_ID and KROGER_CLIENT_SECRET environment variables.'
+    );
+  }
   const basic = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
