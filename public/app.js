@@ -329,14 +329,6 @@ async function startScanner() {
 
   scanner = new Html5Qrcode('reader');
 
-  // Ask for a high-res rear camera with continuous autofocus to reduce blur.
-  const cameraConstraints = {
-    facingMode: 'environment',
-    width: { ideal: 1920 },
-    height: { ideal: 1080 },
-    advanced: [{ focusMode: 'continuous' }],
-  };
-
   const config = {
     fps: 15,
     // Wide, short scan window sized to the viewport — matches a barcode's shape.
@@ -356,11 +348,53 @@ async function startScanner() {
     experimentalFeatures: { useBarCodeDetectorIfSupported: true },
   };
 
+  // Try the high-quality rear camera first, then fall back to progressively
+  // simpler constraints — some phones reject strict resolution/focus requests
+  // with an OverconstrainedError instead of just ignoring them.
+  const cameraAttempts = [
+    {
+      facingMode: 'environment',
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      advanced: [{ focusMode: 'continuous' }],
+    },
+    { facingMode: 'environment' },
+  ];
+
+  let lastErr = null;
+  for (const cam of cameraAttempts) {
+    try {
+      await scanner.start(cam, config, onScanSuccess, () => {});
+      return; // started successfully
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  // Last resort: enumerate cameras and use one directly (prefer a rear/back
+  // lens). This also helps on devices that need an explicit deviceId.
   try {
-    await scanner.start(cameraConstraints, config, onScanSuccess, () => {});
+    const cameras = await Html5Qrcode.getCameras();
+    if (cameras && cameras.length) {
+      const back = cameras.find((c) => /back|rear|environment/i.test(c.label));
+      const id = (back || cameras[cameras.length - 1]).id;
+      await scanner.start(id, config, onScanSuccess, () => {});
+      return;
+    }
   } catch (err) {
+    lastErr = err;
+  }
+
+  // Every attempt failed — most often a denied permission or no camera.
+  {
+    const err = lastErr || {};
+    const name = err.name ? ` (${err.name})` : '';
+    const permission =
+      err.name === 'NotAllowedError' || err.name === 'SecurityError';
     setStatus(
-      'Could not open the camera. Allow camera access, or type the UPC manually.',
+      permission
+        ? `Camera permission is blocked${name}. Enable it for this site in your browser settings, or type the UPC manually.`
+        : `Could not open the camera${name}. Type the UPC manually, or try again.`,
       'error'
     );
     await stopScanner();
