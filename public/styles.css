@@ -321,6 +321,12 @@ input[type="range"].zoom::-moz-range-thumb { width: 22px; height: 22px; border-r
 .trip-line .nm b { color: var(--text); font-weight: 650; }
 .trip-line .vl { font-weight: 650; font-variant-numeric: tabular-nums; }
 .trip-actions { display: flex; justify-content: flex-end; padding-top: 8px; }
+.trip-bd { border-top: 1px solid var(--border); margin-top: 4px; }
+.trip-bd-toggle { width: 100%; display: flex; align-items: center; gap: 6px; background: none; border: none; cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); font-weight: 700; color: var(--brand-ink); padding: 11px 0 9px; }
+.trip-bd-toggle .trip-bd-chev { margin-left: auto; color: var(--text-3); transition: transform .15s; }
+.trip-bd.open .trip-bd-toggle .trip-bd-chev { transform: rotate(90deg); }
+.trip-bd-body { display: none; padding-bottom: 6px; }
+.trip-bd.open .trip-bd-body { display: block; }
 .empty-hint { color: var(--text-3); text-align: center; padding: var(--sp-5); font-size: var(--fs-sm); }
 .app-credit { text-align: center; color: var(--text-3); font-size: var(--fs-xs); opacity: .75; margin: 4px 0 6px; }
 

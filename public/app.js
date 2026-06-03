@@ -467,11 +467,13 @@ function categorize(item) {
 }
 
 // Group the current cart's spending by department and sub-category.
-function computeBreakdown() {
+// Group a list of items by department/sub-category. lineOf(item) returns the
+// item's line total (so cart items and saved-trip items can both be used).
+function breakdownOf(items, lineOf) {
   const map = {};
   let total = 0;
-  for (const item of state.cart) {
-    const line = unitPrice(item) * item.qty;
+  for (const item of items) {
+    const line = lineOf(item);
     total += line;
     const c = categorize(item);
     if (!map[c.key]) map[c.key] = { key: c.key, name: c.dept, icon: c.icon, total: 0, subs: {} };
@@ -482,7 +484,62 @@ function computeBreakdown() {
   return { total, depts };
 }
 
+function computeBreakdown() {
+  return breakdownOf(state.cart, (i) => unitPrice(i) * i.qty);
+}
+
 const BD_COLORS = ['#0a4b9c', '#1e8a52', '#e07a3c', '#7b5ea7', '#2aa7b5', '#b9780f', '#8a93a0'];
+
+// Build the breakdown rows as an HTML string. Expansion is handled by a single
+// delegated click listener, so this works for both the live cart and saved
+// trips. `avgs` (optional) adds the "vs your average" indicator per category.
+function breakdownRowsHtml(total, depts, avgs) {
+  if (!depts.length || !total) {
+    return '<div class="empty-hint">No priced items in this trip.</div>';
+  }
+  return depts
+    .map((d, i) => {
+      const color = BD_COLORS[i % BD_COLORS.length];
+      const pct = Math.round((d.total / total) * 100);
+      const subHtml = Object.entries(d.subs)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, amt]) => `<div class="bd-sub-row"><span class="nm">${escapeHtml(name)}</span><span class="vl">${money(amt)}</span></div>`)
+        .join('');
+
+      let avgHtml = '';
+      const avg = avgs && avgs.byKey[d.key];
+      if (avg) {
+        const ratio = d.total / avg;
+        const apct = Math.round(ratio * 100);
+        const lvl = ratio > 1 ? 'over' : ratio >= 0.9 ? 'warn' : 'ok';
+        const note =
+          lvl === 'over'
+            ? `${money(d.total - avg)} over your ${money(avg)} average`
+            : `${apct}% of your ${money(avg)} average`;
+        avgHtml = `<div class="bd-avg ${lvl}"><div class="bd-avg-bar"><i style="width:${Math.min(100, apct)}%"></i></div><span class="bd-avg-note">${note}</span></div>`;
+      }
+
+      return `
+        <div class="bd-cat">
+          <div class="bd-cat-head">
+            <span class="bd-swatch" style="background:${color}"></span>
+            <span class="bd-cat-name">${escapeHtml(d.name)}</span>
+            <span class="bd-cat-amt">${money(d.total)}</span><span class="bd-cat-pct">${pct}%</span>
+            <svg class="ico bd-chev" data-ic="i-chev-right" viewBox="0 0 24 24" style="width:18px;height:18px"></svg>
+          </div>
+          <div class="bd-bar"><i style="width:${pct}%;background:${color}"></i></div>
+          ${avgHtml}
+          <div class="bd-sub">${subHtml}</div>
+        </div>`;
+    })
+    .join('');
+}
+
+// Toggle a category open/closed wherever a breakdown appears (cart or trips).
+document.addEventListener('click', (e) => {
+  const head = e.target.closest('.bd-cat-head');
+  if (head) head.parentElement.classList.toggle('open');
+});
 
 // Average spend per category across qualifying past trips (total >= threshold).
 function categoryAverages() {
@@ -510,53 +567,10 @@ function renderBreakdown() {
   els.breakdownSub.textContent = avgs.count
     ? `Averages from ${avgs.count} trip${avgs.count > 1 ? 's' : ''} of ${money(avgs.threshold)}+`
     : 'Finish a few trips to start tracking your category averages.';
-  els.breakdownList.innerHTML = '';
-  if (!depts.length || !total) {
-    els.breakdownList.innerHTML = '<div class="empty-hint">Add items (with prices) to see the breakdown.</div>';
-    return;
-  }
-  depts.forEach((d, i) => {
-    const color = BD_COLORS[i % BD_COLORS.length];
-    const pct = Math.round((d.total / total) * 100);
-    const subs = Object.entries(d.subs).sort((a, b) => b[1] - a[1]);
-    const subHtml = subs
-      .map(([name, amt]) => `<div class="bd-sub-row"><span class="nm">${escapeHtml(name)}</span><span class="vl">${money(amt)}</span></div>`)
-      .join('');
-
-    // "vs your average" indicator
-    let avgHtml = '';
-    const avg = avgs.byKey[d.key];
-    if (avg) {
-      const ratio = d.total / avg;
-      const apct = Math.round(ratio * 100);
-      const lvl = ratio > 1 ? 'over' : ratio >= 0.9 ? 'warn' : 'ok';
-      const note =
-        lvl === 'over'
-          ? `${money(d.total - avg)} over your ${money(avg)} average`
-          : `${apct}% of your ${money(avg)} average`;
-      avgHtml = `
-        <div class="bd-avg ${lvl}">
-          <div class="bd-avg-bar"><i style="width:${Math.min(100, apct)}%"></i></div>
-          <span class="bd-avg-note">${note}</span>
-        </div>`;
-    }
-
-    const row = document.createElement('div');
-    row.className = 'bd-cat';
-    row.innerHTML = `
-      <div class="bd-cat-head">
-        <span class="bd-swatch" style="background:${color}"></span>
-        <span class="bd-cat-name">${escapeHtml(d.name)}</span>
-        <span class="bd-cat-amt">${money(d.total)}</span><span class="bd-cat-pct">${pct}%</span>
-        <svg class="ico bd-chev" data-ic="i-chev-right" viewBox="0 0 24 24" style="width:18px;height:18px"></svg>
-      </div>
-      <div class="bd-bar"><i style="width:${pct}%;background:${color}"></i></div>
-      ${avgHtml}
-      <div class="bd-sub">${subHtml}</div>
-    `;
-    row.querySelector('.bd-cat-head').addEventListener('click', () => row.classList.toggle('open'));
-    els.breakdownList.appendChild(row);
-  });
+  els.breakdownList.innerHTML =
+    !depts.length || !total
+      ? '<div class="empty-hint">Add items (with prices) to see the breakdown.</div>'
+      : breakdownRowsHtml(total, depts, avgs);
   hydrateIcons(els.breakdownList);
 }
 
@@ -972,6 +986,8 @@ function renderTrips() {
     }
     const wrap = document.createElement('div');
     wrap.className = 'trip';
+    const bd = breakdownOf(trip.items, (it) => (it.unitPrice || 0) * (it.qty || 1));
+    const tripBdHtml = breakdownRowsHtml(bd.total, bd.depts);
     wrap.innerHTML = `
       <div class="trip-head">
         <span class="trip-cal"><span class="mo">${mo}</span><span class="dy">${dy}</span></span>
@@ -983,10 +999,18 @@ function renderTrips() {
         ${itemsHtml}
         <div class="trip-line"><span class="nm">Tax (${trip.taxRate}%)</span><span class="vl">${money(trip.tax)}</span></div>
         ${budgetLine}
+        <div class="trip-bd">
+          <button type="button" class="trip-bd-toggle">${ic('i-pie', 16)} Category breakdown <svg class="ico trip-bd-chev" data-ic="i-chev-right" viewBox="0 0 24 24" style="width:16px;height:16px"></svg></button>
+          <div class="trip-bd-body">${tripBdHtml}</div>
+        </div>
         <div class="trip-actions"><button type="button" class="linkbtn danger" data-del="${trip.id}">${ic('i-trash', 16)}Delete trip</button></div>
       </div>
     `;
     wrap.querySelector('.trip-head').addEventListener('click', () => wrap.classList.toggle('open'));
+    wrap.querySelector('.trip-bd-toggle').addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.currentTarget.parentElement.classList.toggle('open');
+    });
     wrap.querySelector('[data-del]').addEventListener('click', (e) => {
       e.stopPropagation();
       if (confirm('Delete this saved trip?')) {
