@@ -226,5 +226,7 @@ function normalizeProduct(p) {
     promoPrice:
       typeof price.promo === 'number' && price.promo > 0 ? price.promo : null,
     imageUrl: size.url || null,
+    // Kroger department-level categories (e.g. "Meat & Seafood", "Produce").
+    categories: Array.isArray(p.categories) ? p.categories : [],
   };
 }

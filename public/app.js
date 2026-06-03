@@ -114,6 +114,11 @@ const els = {
   tripsList: $('tripsList'),
   closeTripsBtn: $('closeTripsBtn'),
   exportTripsBtn: $('exportTripsBtn'),
+  breakdownBtn: $('breakdownBtn'),
+  breakdownModal: $('breakdownModal'),
+  breakdownTotal: $('breakdownTotal'),
+  breakdownList: $('breakdownList'),
+  closeBreakdownBtn: $('closeBreakdownBtn'),
 };
 
 // ---- Helpers ---------------------------------------------------------------
@@ -208,6 +213,131 @@ function computeTotals() {
   return { subtotal, tax, total: subtotal + tax };
 }
 
+// ---- Categorization & spending breakdown -----------------------------------
+// Each department maps from Kroger's category text (cat) and, as a fallback,
+// keywords in the product name (kw). Sub-categories are derived from the name.
+const DEPARTMENTS = [
+  {
+    key: 'produce', name: 'Produce', icon: '🥬',
+    cat: ['produce'],
+    kw: ['lettuce', 'banana', 'apple', 'tomato', 'onion', 'potato', 'berry', 'strawberr', 'blueberr', 'spinach', 'avocado', 'pepper', 'carrot', 'broccoli', 'grape', 'orange', 'lemon', 'lime', 'celery', 'cucumber', 'mushroom', 'kale', 'cilantro', 'garlic', 'melon', 'peach', 'pear', 'mango', 'salad', 'squash', 'zucchini', 'corn'],
+    subs: [
+      { name: 'Fruit', kw: ['banana', 'apple', 'berry', 'strawberr', 'blueberr', 'grape', 'orange', 'lemon', 'lime', 'melon', 'peach', 'pear', 'mango', 'avocado'] },
+      { name: 'Vegetables', kw: [] },
+    ],
+  },
+  {
+    key: 'meat', name: 'Meat & Seafood', icon: '🥩',
+    cat: ['meat', 'seafood'],
+    kw: ['chicken', 'beef', 'pork', 'turkey', 'bacon', 'sausage', 'steak', 'ground ', 'fish', 'salmon', 'shrimp', 'tuna', 'tilapia', 'crab', 'ham', 'ribs', 'poultry', 'seafood', 'cod'],
+    subs: [
+      { name: 'Chicken', kw: ['chicken', 'poultry'] },
+      { name: 'Beef', kw: ['beef', 'steak', 'ground beef'] },
+      { name: 'Pork', kw: ['pork', 'bacon', 'ham', 'sausage', 'ribs'] },
+      { name: 'Turkey', kw: ['turkey'] },
+      { name: 'Seafood', kw: ['fish', 'salmon', 'shrimp', 'tuna', 'tilapia', 'crab', 'seafood', 'cod'] },
+      { name: 'Other meat', kw: [] },
+    ],
+  },
+  {
+    key: 'dairy', name: 'Dairy & Eggs', icon: '🥛',
+    cat: ['dairy', 'egg'],
+    kw: ['milk', 'cheese', 'yogurt', 'butter', 'cream', 'egg', 'cottage'],
+    subs: [
+      { name: 'Milk', kw: ['milk'] },
+      { name: 'Cheese', kw: ['cheese'] },
+      { name: 'Yogurt', kw: ['yogurt'] },
+      { name: 'Eggs', kw: ['egg'] },
+      { name: 'Butter & Cream', kw: ['butter', 'cream'] },
+      { name: 'Other dairy', kw: [] },
+    ],
+  },
+  { key: 'bakery', name: 'Bakery', icon: '🍞', cat: ['bakery', 'bread'], kw: ['bread', 'bagel', 'bun', 'roll', 'muffin', 'cake', 'donut', 'doughnut', 'tortilla', 'pastry', 'croissant', 'biscuit', 'pita'], subs: [] },
+  { key: 'frozen', name: 'Frozen', icon: '🧊', cat: ['frozen'], kw: ['frozen', 'ice cream', 'popsicle'], subs: [] },
+  { key: 'beverages', name: 'Beverages', icon: '🥤', cat: ['beverage', 'drink'], kw: ['soda', 'juice', 'water', 'coffee', ' tea', 'cola', 'lemonade', 'seltzer', 'beer', 'wine'], subs: [] },
+  { key: 'snacks', name: 'Snacks', icon: '🍿', cat: ['snack', 'candy'], kw: ['chip', 'cracker', 'cookie', 'candy', 'popcorn', 'pretzel', 'nuts', 'granola'], subs: [] },
+  { key: 'pantry', name: 'Pantry', icon: '🥫', cat: ['pantry', 'canned', 'pasta', 'grocery'], kw: ['pasta', 'rice', 'sauce', 'soup', 'cereal', ' oil', 'flour', 'sugar', 'beans', 'canned', 'ketchup', 'mustard', 'peanut butter', 'jelly', 'honey', 'broth', 'noodle'], subs: [] },
+  { key: 'deli', name: 'Deli', icon: '🧀', cat: ['deli'], kw: ['deli', 'lunch meat', 'hummus'], subs: [] },
+  { key: 'household', name: 'Household', icon: '🧻', cat: ['household', 'paper', 'cleaning'], kw: ['paper towel', 'toilet paper', 'detergent', 'dish soap', 'cleaner', 'trash bag', 'tissue', 'napkin', 'foil', 'bleach', 'sponge'], subs: [] },
+  { key: 'personal', name: 'Personal Care', icon: '🧴', cat: ['health', 'beauty', 'personal'], kw: ['shampoo', 'conditioner', 'toothpaste', 'deodorant', 'lotion', 'razor', 'body wash', 'vitamin', 'bandage'], subs: [] },
+];
+
+function categorize(item) {
+  const desc = (item.description || '').toLowerCase();
+  const cats = (item.categories || []).map((c) => String(c).toLowerCase());
+
+  let dept = DEPARTMENTS.find((d) => cats.some((c) => d.cat.some((t) => c.includes(t))));
+  if (!dept) dept = DEPARTMENTS.find((d) => d.kw.some((k) => desc.includes(k)));
+  if (!dept) return { key: 'other', dept: 'Other', icon: '🛒', sub: 'Other' };
+
+  let sub = dept.name;
+  if (dept.subs.length) {
+    const hit = dept.subs.find((s) => s.kw.length && s.kw.some((k) => desc.includes(k)));
+    sub = hit ? hit.name : (dept.subs.find((s) => !s.kw.length) || {}).name || dept.name;
+  }
+  return { key: dept.key, dept: dept.name, icon: dept.icon, sub };
+}
+
+// Group the current cart's spending by department and sub-category.
+function computeBreakdown() {
+  const map = {};
+  let total = 0;
+  for (const item of state.cart) {
+    const line = unitPrice(item) * item.qty;
+    total += line;
+    const c = categorize(item);
+    if (!map[c.key]) map[c.key] = { name: c.dept, icon: c.icon, total: 0, subs: {} };
+    map[c.key].total += line;
+    map[c.key].subs[c.sub] = (map[c.key].subs[c.sub] || 0) + line;
+  }
+  const depts = Object.values(map).sort((a, b) => b.total - a.total);
+  return { total, depts };
+}
+
+function renderBreakdown() {
+  const { total, depts } = computeBreakdown();
+  els.breakdownTotal.textContent = total ? `Total ${money(total)}` : '';
+  els.breakdownList.innerHTML = '';
+  if (!depts.length || !total) {
+    els.breakdownList.innerHTML =
+      '<li class="empty-hint">Add items (with prices) to see the breakdown.</li>';
+    return;
+  }
+  for (const d of depts) {
+    const pct = Math.round((d.total / total) * 100);
+    const subs = Object.entries(d.subs).sort((a, b) => b[1] - a[1]);
+    const subHtml = subs
+      .map(
+        ([name, amt]) =>
+          `<div class="bd-line"><span>${escapeHtml(name)}</span><span>${money(amt)}</span></div>`
+      )
+      .join('');
+    const li = document.createElement('li');
+    li.className = 'bd-item';
+    li.innerHTML = `
+      <details>
+        <summary>
+          <div class="bd-row">
+            <span class="bd-name">${d.icon} ${escapeHtml(d.name)}</span>
+            <span class="bd-amt">${money(d.total)} · ${pct}%</span>
+          </div>
+          <div class="bd-bar"><div class="bd-fill" style="width:${pct}%"></div></div>
+        </summary>
+        <div class="bd-subs">${subHtml}</div>
+      </details>
+    `;
+    els.breakdownList.appendChild(li);
+  }
+}
+
+function openBreakdownModal() {
+  renderBreakdown();
+  els.breakdownModal.classList.remove('hidden');
+}
+function closeBreakdownModal() {
+  els.breakdownModal.classList.add('hidden');
+}
+
 // ---- Finish & save a trip --------------------------------------------------
 function finishTrip() {
   if (!state.cart.length) {
@@ -235,6 +365,7 @@ function finishTrip() {
       promoPrice: i.promoPrice,
       unitPrice: unitPrice(i),
       taxable: i.taxable,
+      categories: i.categories || [],
     })),
   };
 
@@ -853,6 +984,12 @@ els.cameraSelect.addEventListener('change', async () => {
 });
 
 els.zoomRange.addEventListener('input', () => applyZoom(els.zoomRange.value));
+
+els.breakdownBtn.addEventListener('click', openBreakdownModal);
+els.closeBreakdownBtn.addEventListener('click', closeBreakdownModal);
+els.breakdownModal.addEventListener('click', (e) => {
+  if (e.target === els.breakdownModal) closeBreakdownModal();
+});
 
 els.finishTripBtn.addEventListener('click', finishTrip);
 els.tripsBtn.addEventListener('click', openTripsModal);

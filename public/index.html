@@ -74,7 +74,10 @@
       <section class="cart">
         <div class="cart-head">
           <h2>Cart <span id="itemCount" class="count">0</span></h2>
-          <button id="clearBtn" class="ghost-btn small" type="button">Clear</button>
+          <span class="cart-head-actions">
+            <button id="breakdownBtn" class="ghost-btn small" type="button">📊 Breakdown</button>
+            <button id="clearBtn" class="ghost-btn small" type="button">Clear</button>
+          </span>
         </div>
         <ul id="cartList" class="cart-list"></ul>
         <p id="emptyHint" class="empty-hint">
@@ -126,6 +129,17 @@
       </div>
     </div>
 
+    <!-- Spending breakdown modal -->
+    <div id="breakdownModal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Spending breakdown</h3>
+        <p class="modal-sub">Your current cart by category — tap a row for details.</p>
+        <div id="breakdownTotal" class="bd-total"></div>
+        <ul id="breakdownList" class="bd-list"></ul>
+        <button id="closeBreakdownBtn" class="ghost-btn" type="button">Close</button>
+      </div>
+    </div>
+
     <!-- Saved trips modal -->
     <div id="tripsModal" class="modal hidden">
       <div class="modal-card">
@@ -163,7 +177,7 @@
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=9"></script>
-    <script src="app.js?v=9"></script>
+    <script src="config.js?v=10"></script>
+    <script src="app.js?v=10"></script>
   </body>
 </html>

@@ -171,6 +171,21 @@ button { font-family: inherit; cursor: pointer; }
   padding: 14px 16px; border-bottom: 1px solid var(--line);
 }
 .cart-head h2 { font-size: 16px; margin: 0; }
+.cart-head-actions { display: flex; gap: 6px; }
+
+/* Spending breakdown */
+.bd-total { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 10px; }
+.bd-list { list-style: none; margin: 0 0 12px; padding: 0; }
+.bd-item { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
+.bd-item summary { list-style: none; cursor: pointer; padding: 10px 12px; }
+.bd-item summary::-webkit-details-marker { display: none; }
+.bd-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bd-name { font-weight: 700; font-size: 14px; }
+.bd-amt { font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.bd-bar { margin-top: 8px; height: 8px; border-radius: 999px; background: #eef2f8; overflow: hidden; }
+.bd-fill { height: 100%; background: var(--kroger-blue); border-radius: 999px; }
+.bd-subs { padding: 0 12px 10px; border-top: 1px solid var(--line); }
+.bd-line { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 5px 0; color: var(--text); }
 .count {
   display: inline-block; min-width: 22px; text-align: center;
   background: var(--kroger-blue); color: #fff; border-radius: 999px;

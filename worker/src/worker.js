@@ -132,6 +132,8 @@ function normalizeProduct(p) {
     regularPrice: typeof price.regular === 'number' ? price.regular : null,
     promoPrice: typeof price.promo === 'number' && price.promo > 0 ? price.promo : null,
     imageUrl: size.url || null,
+    // Kroger department-level categories (e.g. "Meat & Seafood", "Produce").
+    categories: Array.isArray(p.categories) ? p.categories : [],
   };
 }
 
@@ -286,6 +288,7 @@ async function handleDebug(upc, searchParams, env) {
         found: !!p,
         upc: p ? p.upc : null,
         description: p ? p.description : null,
+        categories: p ? p.categories : null,
         price: p && p.items && p.items[0] ? p.items[0].price : null,
       });
     } catch (err) {
