@@ -237,6 +237,47 @@ button { font-family: inherit; cursor: pointer; }
 .confirm-actions .ghost-btn { flex: 1; margin: 0; }
 .confirm-actions .primary-btn { flex: 1; }
 
+/* Debug panel */
+.debug-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  background: #0b1220;
+  color: #d6e2f0;
+  border-top: 2px solid var(--kroger-blue);
+  max-height: 45vh;
+  display: flex;
+  flex-direction: column;
+}
+.debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.debug-head button {
+  background: #1d2b45;
+  color: #d6e2f0;
+  border: 1px solid #2c3e5e;
+  border-radius: 6px;
+  padding: 5px 10px;
+  margin-left: 6px;
+  font-size: 12px;
+}
+.debug-out {
+  margin: 0;
+  padding: 0 12px 12px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
 .hidden { display: none !important; }
 
 @media (min-width: 520px) {

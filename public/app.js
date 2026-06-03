@@ -26,6 +26,24 @@ function resolveApiBase() {
 
 const state = loadState();
 
+// ---- Debug panel -----------------------------------------------------------
+// Turn on by visiting the site with ?debug=1. Logs scans + raw API responses
+// on-screen with a Copy button, so issues can be reported precisely.
+const DEBUG = new URLSearchParams(location.search).has('debug');
+const debugLines = [];
+function debugLog(msg) {
+  const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  debugLines.push(line);
+  if (debugLines.length > 200) debugLines.shift();
+  const out = document.getElementById('debugOut');
+  if (out) {
+    out.textContent = debugLines.join('\n');
+    out.scrollTop = out.scrollHeight;
+  }
+  // Also mirror to the console for desktop debugging.
+  if (window.console) console.log('[KrogerBuddy]', msg);
+}
+
 // ---- Persistence -----------------------------------------------------------
 function loadState() {
   try {
@@ -231,10 +249,15 @@ async function lookupUpc(upc) {
   if (lookupInFlight) return;
   lookupInFlight = true;
   setStatus(`Looking up ${upc}…`, 'busy');
+  const loc = state.store ? state.store.locationId : '';
+  const params = loc ? `?locationId=${encodeURIComponent(loc)}` : '';
+  const url = `${API_BASE}/api/product/${encodeURIComponent(upc)}${params}`;
   try {
-    const params = state.store ? `?locationId=${encodeURIComponent(state.store.locationId)}` : '';
-    const res = await fetch(`${API_BASE}/api/product/${encodeURIComponent(upc)}${params}`);
+    debugLog(`lookup upc=${upc} store=${loc || 'none'}\nGET ${url}`);
+    const res = await fetch(url);
     const data = await res.json();
+    debugLog(`status ${res.status}: ${JSON.stringify(data).slice(0, 500)}`);
+    if (DEBUG) await dumpDebugEndpoint(upc, loc);
     if (!res.ok) throw new Error(data.error || 'Lookup failed');
 
     beep();
@@ -243,8 +266,22 @@ async function lookupUpc(upc) {
     setStatus('');
   } catch (err) {
     setStatus(err.message, 'error');
+    debugLog(`ERROR ${err.message}`);
   } finally {
     lookupInFlight = false;
+  }
+}
+
+// In debug mode, also pull the raw Kroger results so we can see exactly what
+// the API returns for each UPC variant.
+async function dumpDebugEndpoint(upc, loc) {
+  try {
+    const u = `${API_BASE}/api/debug/${encodeURIComponent(upc)}${loc ? `?locationId=${encodeURIComponent(loc)}` : ''}`;
+    const res = await fetch(u);
+    const data = await res.json();
+    debugLog(`DEBUG ${u}\n${JSON.stringify(data, null, 1)}`);
+  } catch (err) {
+    debugLog(`DEBUG fetch failed: ${err.message}`);
   }
 }
 
@@ -482,11 +519,17 @@ function isValidGtin(code) {
   return (10 - (sum % 10)) % 10 === check;
 }
 
+let lastRawLogged = '';
 function onScanSuccess(decodedText) {
   // Ignore frames while we're waiting on a lookup or the confirm dialog.
   if (awaitingConfirm || lookupInFlight) return;
 
   const code = decodedText.replace(/\D/g, '');
+  // Log distinct raw decodes so we can see exactly what the scanner reads.
+  if (DEBUG && decodedText !== lastRawLogged) {
+    lastRawLogged = decodedText;
+    debugLog(`decoded raw="${decodedText}" digits="${code}" len=${code.length} validGtin=${isValidGtin(code)}`);
+  }
   if (!code || !isValidGtin(code)) return;
 
   const now = Date.now();
@@ -655,6 +698,34 @@ els.zoomRange.addEventListener('input', () => applyZoom(els.zoomRange.value));
 
 // ---- Init ------------------------------------------------------------------
 render();
+
+// Debug panel wiring (only when ?debug=1).
+if (DEBUG) {
+  const panel = document.getElementById('debugPanel');
+  if (panel) {
+    panel.classList.remove('hidden');
+    document.getElementById('debugCopy').addEventListener('click', async () => {
+      const text = debugLines.join('\n');
+      try {
+        await navigator.clipboard.writeText(text);
+        debugLog('(log copied to clipboard)');
+      } catch (_) {
+        // Fallback: select the text so it can be copied manually.
+        const out = document.getElementById('debugOut');
+        const range = document.createRange();
+        range.selectNodeContents(out);
+        const sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    });
+    document.getElementById('debugClear').addEventListener('click', () => {
+      debugLines.length = 0;
+      document.getElementById('debugOut').textContent = '';
+    });
+  }
+  debugLog(`KrogerBuddy debug on. apiBase=${API_BASE || '(same origin)'} store=${state.store ? state.store.locationId : 'none'}`);
+}
 
 // On a static host (e.g. GitHub Pages) the app needs to know where its API
 // proxy lives. Surface a clear hint instead of letting lookups silently fail.

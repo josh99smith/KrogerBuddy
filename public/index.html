@@ -130,7 +130,19 @@
       </div>
     </div>
 
-    <script src="config.js?v=6"></script>
-    <script src="app.js?v=6"></script>
+    <!-- Debug panel (shown only with ?debug=1) -->
+    <div id="debugPanel" class="debug-panel hidden">
+      <div class="debug-head">
+        <strong>Debug log</strong>
+        <span>
+          <button id="debugCopy" type="button">Copy</button>
+          <button id="debugClear" type="button">Clear</button>
+        </span>
+      </div>
+      <pre id="debugOut" class="debug-out"></pre>
+    </div>
+
+    <script src="config.js?v=7"></script>
+    <script src="app.js?v=7"></script>
   </body>
 </html>
