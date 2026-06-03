@@ -119,6 +119,16 @@ const els = {
   breakdownTotal: $('breakdownTotal'),
   breakdownList: $('breakdownList'),
   closeBreakdownBtn: $('closeBreakdownBtn'),
+  addItemBtn: $('addItemBtn'),
+  addModal: $('addModal'),
+  addForm: $('addForm'),
+  addName: $('addName'),
+  addPrice: $('addPrice'),
+  addQty: $('addQty'),
+  addCategory: $('addCategory'),
+  addTaxable: $('addTaxable'),
+  addHint: $('addHint'),
+  addCancel: $('addCancel'),
 };
 
 // ---- Helpers ---------------------------------------------------------------
@@ -262,20 +272,27 @@ const DEPARTMENTS = [
   { key: 'personal', name: 'Personal Care', icon: '🧴', cat: ['health', 'beauty', 'personal'], kw: ['shampoo', 'conditioner', 'toothpaste', 'deodorant', 'lotion', 'razor', 'body wash', 'vitamin', 'bandage'], subs: [] },
 ];
 
+function subFor(dept, desc) {
+  if (!dept.subs.length) return dept.name;
+  const hit = dept.subs.find((s) => s.kw.length && s.kw.some((k) => desc.includes(k)));
+  return hit ? hit.name : (dept.subs.find((s) => !s.kw.length) || {}).name || dept.name;
+}
+
 function categorize(item) {
   const desc = (item.description || '').toLowerCase();
-  const cats = (item.categories || []).map((c) => String(c).toLowerCase());
 
+  // Custom/manual items carry an explicit department chosen by the user.
+  if (item.deptKey) {
+    if (item.deptKey === 'other') return { key: 'other', dept: 'Other', icon: '🛒', sub: 'Other' };
+    const d = DEPARTMENTS.find((x) => x.key === item.deptKey);
+    if (d) return { key: d.key, dept: d.name, icon: d.icon, sub: subFor(d, desc) };
+  }
+
+  const cats = (item.categories || []).map((c) => String(c).toLowerCase());
   let dept = DEPARTMENTS.find((d) => cats.some((c) => d.cat.some((t) => c.includes(t))));
   if (!dept) dept = DEPARTMENTS.find((d) => d.kw.some((k) => desc.includes(k)));
   if (!dept) return { key: 'other', dept: 'Other', icon: '🛒', sub: 'Other' };
-
-  let sub = dept.name;
-  if (dept.subs.length) {
-    const hit = dept.subs.find((s) => s.kw.length && s.kw.some((k) => desc.includes(k)));
-    sub = hit ? hit.name : (dept.subs.find((s) => !s.kw.length) || {}).name || dept.name;
-  }
-  return { key: dept.key, dept: dept.name, icon: dept.icon, sub };
+  return { key: dept.key, dept: dept.name, icon: dept.icon, sub: subFor(dept, desc) };
 }
 
 // Group the current cart's spending by department and sub-category.
@@ -336,6 +353,91 @@ function openBreakdownModal() {
 }
 function closeBreakdownModal() {
   els.breakdownModal.classList.add('hidden');
+}
+
+// ---- Add custom item (store-weighed meat/deli/produce, or non-scannables) --
+// Store-weighted barcodes are UPC-A starting with number-system digit 2 (the
+// scanner may report the EAN-13 form "02..."). These aren't in Kroger's
+// catalog, so we add them by hand.
+function isStoreWeighted(code) {
+  if (code.length === 12) return code[0] === '2';
+  if (code.length === 13) return code.startsWith('02');
+  return false;
+}
+
+function populateAddCategory() {
+  els.addCategory.innerHTML = '';
+  for (const d of DEPARTMENTS) {
+    const opt = document.createElement('option');
+    opt.value = d.key;
+    opt.textContent = `${d.icon} ${d.name}`;
+    els.addCategory.appendChild(opt);
+  }
+  const other = document.createElement('option');
+  other.value = 'other';
+  other.textContent = '🛒 Other';
+  els.addCategory.appendChild(other);
+}
+
+function openQuickAdd({ deptKey = '', storeWeighted = false } = {}) {
+  addModalOpen = true;
+  if (scanner) {
+    try {
+      scanner.pause(true);
+    } catch (_) {}
+  }
+  els.addForm.reset();
+  els.addQty.value = '1';
+  if (deptKey) els.addCategory.value = deptKey;
+  els.addHint.textContent = storeWeighted
+    ? 'Store-weighed item (not in Kroger’s catalog). Enter its name and the price from the sticker.'
+    : 'Add meat, deli, produce or anything that won’t scan. The price is on the item’s sticker.';
+  els.addModal.classList.remove('hidden');
+  setTimeout(() => els.addName.focus(), 50);
+}
+
+function closeQuickAdd() {
+  els.addModal.classList.add('hidden');
+  addModalOpen = false;
+  lastScan = { code: null, at: 0 };
+  if (scanner) {
+    try {
+      scanner.resume();
+    } catch (_) {}
+  }
+}
+
+function submitQuickAdd(e) {
+  e.preventDefault();
+  const name = els.addName.value.trim();
+  const price = parseFloat(els.addPrice.value);
+  const qty = Math.max(1, parseInt(els.addQty.value, 10) || 1);
+  if (!name) {
+    els.addName.focus();
+    return;
+  }
+  if (isNaN(price) || price < 0) {
+    els.addPrice.focus();
+    return;
+  }
+  state.cart.unshift({
+    upc: `custom-${Date.now()}`,
+    custom: true,
+    description: name,
+    brand: '',
+    size: '',
+    regularPrice: price,
+    promoPrice: null,
+    imageUrl: null,
+    qty,
+    taxable: els.addTaxable.checked,
+    deptKey: els.addCategory.value || 'other',
+    categories: [],
+  });
+  saveState();
+  render();
+  closeQuickAdd();
+  setStatus(`Added "${name}" — ${money(price)}.`, 'ok');
 }
 
 // ---- Finish & save a trip --------------------------------------------------
@@ -545,6 +647,12 @@ async function lookupUpc(upc) {
     const data = await res.json();
     debugLog(`status ${res.status}: ${JSON.stringify(data).slice(0, 500)}`);
     if (DEBUG) await dumpDebugEndpoint(upc, loc);
+    if (res.status === 404) {
+      // Not in Kroger's catalog — likely a store item; offer manual entry.
+      setStatus('Not in Kroger’s catalog — add it manually below.', 'error');
+      openQuickAdd({});
+      return;
+    }
     if (!res.ok) throw new Error(data.error || 'Lookup failed');
 
     beep();
@@ -590,6 +698,7 @@ function beep() {
 // ---- Confirm-before-add ----------------------------------------------------
 let pendingProduct = null;
 let awaitingConfirm = false;
+let addModalOpen = false;
 
 function showConfirm(product) {
   pendingProduct = product;
@@ -810,8 +919,8 @@ function isValidGtin(code) {
 
 let lastRawLogged = '';
 function onScanSuccess(decodedText) {
-  // Ignore frames while we're waiting on a lookup or the confirm dialog.
-  if (awaitingConfirm || lookupInFlight) return;
+  // Ignore frames while we're waiting on a lookup or a dialog is open.
+  if (awaitingConfirm || addModalOpen || lookupInFlight) return;
 
   const code = decodedText.replace(/\D/g, '');
   // Log distinct raw decodes so we can see exactly what the scanner reads.
@@ -833,6 +942,14 @@ function onScanSuccess(decodedText) {
 
   lastScan = { code, at: now };
   recentReads = {};
+
+  // Store-weighed items (leading "2") aren't in Kroger's catalog — go straight
+  // to manual entry instead of a guaranteed-failed lookup.
+  if (isStoreWeighted(code)) {
+    beep();
+    openQuickAdd({ deptKey: 'meat', storeWeighted: true });
+    return;
+  }
   lookupUpc(code);
 }
 
@@ -991,6 +1108,13 @@ els.breakdownModal.addEventListener('click', (e) => {
   if (e.target === els.breakdownModal) closeBreakdownModal();
 });
 
+els.addItemBtn.addEventListener('click', () => openQuickAdd({}));
+els.addForm.addEventListener('submit', submitQuickAdd);
+els.addCancel.addEventListener('click', closeQuickAdd);
+els.addModal.addEventListener('click', (e) => {
+  if (e.target === els.addModal) closeQuickAdd();
+});
+
 els.finishTripBtn.addEventListener('click', finishTrip);
 els.tripsBtn.addEventListener('click', openTripsModal);
 els.closeTripsBtn.addEventListener('click', closeTripsModal);
@@ -1000,6 +1124,7 @@ els.tripsModal.addEventListener('click', (e) => {
 });
 
 // ---- Init ------------------------------------------------------------------
+populateAddCategory();
 render();
 updateTripBadge();
 

@@ -173,6 +173,16 @@ button { font-family: inherit; cursor: pointer; }
 .cart-head h2 { font-size: 16px; margin: 0; }
 .cart-head-actions { display: flex; gap: 6px; }
 
+/* Add custom item form */
+.add-form { display: flex; flex-direction: column; gap: 12px; }
+.add-form .fld { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.add-form .fld input, .add-form .fld select { font-weight: 400; color: var(--text); }
+.fld-row { display: flex; gap: 12px; }
+.fld-row .fld { flex: 1; }
+.fld-row .qty-fld { max-width: 90px; }
+.add-form .taxable-toggle { font-size: 14px; }
+.add-form .confirm-actions { margin-top: 4px; }
+
 /* Spending breakdown */
 .bd-total { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 10px; }
 .bd-list { list-style: none; margin: 0 0 12px; padding: 0; }

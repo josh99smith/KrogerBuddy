@@ -66,6 +66,9 @@
             />
             <button class="secondary-btn" type="submit">Add</button>
           </form>
+          <button id="addItemBtn" class="ghost-btn" type="button">
+            ➕ Add item manually (meat, deli, produce…)
+          </button>
         </div>
         <p id="status" class="status" role="status" aria-live="polite"></p>
       </section>
@@ -129,6 +132,41 @@
       </div>
     </div>
 
+    <!-- Add custom item modal -->
+    <div id="addModal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Add item</h3>
+        <p class="modal-sub" id="addHint"></p>
+        <form id="addForm" class="add-form">
+          <label class="fld">
+            Name
+            <input id="addName" type="text" autocomplete="off" placeholder="e.g. Ground Beef" />
+          </label>
+          <div class="fld-row">
+            <label class="fld">
+              Price&nbsp;$
+              <input id="addPrice" inputmode="decimal" placeholder="0.00" />
+            </label>
+            <label class="fld qty-fld">
+              Qty
+              <input id="addQty" inputmode="numeric" value="1" />
+            </label>
+          </div>
+          <label class="fld">
+            Category
+            <select id="addCategory"></select>
+          </label>
+          <label class="taxable-toggle">
+            <input id="addTaxable" type="checkbox" /> Taxable
+          </label>
+          <div class="confirm-actions">
+            <button id="addCancel" class="ghost-btn" type="button">Cancel</button>
+            <button class="primary-btn" type="submit">Add to cart</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Spending breakdown modal -->
     <div id="breakdownModal" class="modal hidden">
       <div class="modal-card">
@@ -177,7 +215,7 @@
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=10"></script>
-    <script src="app.js?v=10"></script>
+    <script src="config.js?v=11"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>
