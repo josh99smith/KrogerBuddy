@@ -127,26 +127,50 @@ async function handleLocations(searchParams, env) {
   return json({ locations }, 200, env);
 }
 
-// Normalize a UPC for comparison by dropping leading zeros (UPC-A 12 vs
-// Kroger's 13-digit form, etc).
-const normUpc = (u) => (u || '').replace(/^0+/, '');
-
-// Different digit forms Kroger's search might index this code under.
-function upcCandidates(upc) {
-  const stripped = normUpc(upc);
-  const forms = [upc, stripped, stripped.padStart(12, '0'), stripped.padStart(13, '0')];
-  return [...new Set(forms)].filter((s) => s.length >= 6);
+// --- UPC normalization & matching ------------------------------------------
+// Scanners read the printed barcode (a valid GTIN), but Kroger sometimes stores
+// products under a non-standard internal UPC whose leading (number-system) and
+// trailing (check) digits differ. The reliable common ground is the "core":
+// the manufacturer+product digits with leading zeros and the check digit
+// removed. We search and match on that.
+const onlyDigits = (u) => (u || '').replace(/\D/g, '');
+const normUpc = (u) => onlyDigits(u).replace(/^0+/, '');
+function coreKey(u) {
+  const n = normUpc(u);
+  return n.length > 6 ? n.slice(0, -1) : n; // drop the check digit when present
+}
+function upcMatches(itemUpc, scanned) {
+  if (normUpc(itemUpc) === normUpc(scanned)) return true;
+  const a = coreKey(itemUpc);
+  const b = coreKey(scanned);
+  return a.length >= 6 && a === b;
 }
 
-// Search Kroger across candidate UPC forms and return the item whose UPC
-// exactly matches (normalized). Only an exact match is trusted.
+// Digit forms Kroger's search might index a code under (full, zero-stripped,
+// padded, and check-digit-stripped variants).
+function upcCandidates(upc) {
+  const digits = onlyDigits(upc);
+  const stripped = normUpc(digits);
+  const noCheck = stripped.length > 6 ? stripped.slice(0, -1) : stripped;
+  const forms = [
+    digits,
+    stripped,
+    stripped.padStart(12, '0'),
+    stripped.padStart(13, '0'),
+    noCheck,
+    noCheck.padStart(12, '0'),
+  ];
+  return [...new Set(forms)].filter((s) => s.length >= 5);
+}
+
+// Search Kroger across candidate UPC forms and return the matching item.
 async function searchExact(upc, locationId, env) {
   for (const term of upcCandidates(upc)) {
-    const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '20' });
+    const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '30' });
     if (locationId) params.set('filter.locationId', locationId);
     const data = await authedGet(`/products?${params}`, env);
-    const exact = (data.data || []).find((p) => normUpc(p.upc) === normUpc(upc));
-    if (exact) return exact;
+    const match = (data.data || []).find((p) => upcMatches(p.upc, upc));
+    if (match) return match;
   }
   return null;
 }
