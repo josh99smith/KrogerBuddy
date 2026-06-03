@@ -137,33 +137,18 @@
       <div class="modal-card">
         <h3>Add item</h3>
         <p class="modal-sub" id="addHint"></p>
-        <form id="addForm" class="add-form">
-          <label class="fld">
-            Name
-            <input id="addName" type="text" autocomplete="off" placeholder="e.g. Ground Beef" />
-          </label>
-          <div class="fld-row">
-            <label class="fld">
-              Price&nbsp;$
-              <input id="addPrice" inputmode="decimal" placeholder="0.00" />
-            </label>
-            <label class="fld qty-fld">
-              Qty
-              <input id="addQty" inputmode="numeric" value="1" />
-            </label>
-          </div>
-          <label class="fld">
-            Category
-            <select id="addCategory"></select>
-          </label>
-          <label class="taxable-toggle">
-            <input id="addTaxable" type="checkbox" /> Taxable
-          </label>
-          <div class="confirm-actions">
-            <button id="addCancel" class="ghost-btn" type="button">Cancel</button>
-            <button class="primary-btn" type="submit">Add to cart</button>
-          </div>
-        </form>
+        <div class="add-pricerow">
+          <label class="fld">Price&nbsp;$<input id="addPrice" inputmode="decimal" placeholder="0.00" /></label>
+          <label class="fld qty-fld">Qty<input id="addQty" inputmode="numeric" value="1" /></label>
+          <label class="taxable-toggle"><input id="addTaxable" type="checkbox" /> Taxable</label>
+        </div>
+        <div id="addCards" class="add-cards"></div>
+        <div id="addOtherRow" class="add-other hidden">
+          <input id="addName" type="text" autocomplete="off" placeholder="Item name" />
+          <select id="addCategory"></select>
+          <button id="addOtherSubmit" class="primary-btn" type="button">Add</button>
+        </div>
+        <button id="addCancel" class="ghost-btn" type="button">Cancel</button>
       </div>
     </div>
 
@@ -215,7 +200,7 @@
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=12"></script>
-    <script src="app.js?v=12"></script>
+    <script src="config.js?v=13"></script>
+    <script src="app.js?v=13"></script>
   </body>
 </html>

@@ -121,7 +121,9 @@ const els = {
   closeBreakdownBtn: $('closeBreakdownBtn'),
   addItemBtn: $('addItemBtn'),
   addModal: $('addModal'),
-  addForm: $('addForm'),
+  addCards: $('addCards'),
+  addOtherRow: $('addOtherRow'),
+  addOtherSubmit: $('addOtherSubmit'),
   addName: $('addName'),
   addPrice: $('addPrice'),
   addQty: $('addQty'),
@@ -378,6 +380,25 @@ function extractStorePrice(code) {
   return cents / 100;
 }
 
+// Tappable common-item cards shown in the quick-add modal. Each sets the item
+// name and its department (so it flows into the breakdown). "Other" reveals a
+// free-text box.
+const QUICK_ITEMS = [
+  { label: 'Beef', icon: '🥩', deptKey: 'meat' },
+  { label: 'Ground Beef', icon: '🍔', deptKey: 'meat' },
+  { label: 'Steak', icon: '🥩', deptKey: 'meat' },
+  { label: 'Chicken', icon: '🍗', deptKey: 'meat' },
+  { label: 'Pork', icon: '🥓', deptKey: 'meat' },
+  { label: 'Turkey', icon: '🦃', deptKey: 'meat' },
+  { label: 'Seafood', icon: '🐟', deptKey: 'meat' },
+  { label: 'Shrimp', icon: '🦐', deptKey: 'meat' },
+  { label: 'Deli Meat', icon: '🥪', deptKey: 'deli' },
+  { label: 'Deli Cheese', icon: '🧀', deptKey: 'deli' },
+  { label: 'Bakery', icon: '🍞', deptKey: 'bakery' },
+  { label: 'Produce', icon: '🥬', deptKey: 'produce' },
+  { label: 'Other…', icon: '✏️', other: true },
+];
+
 function populateAddCategory() {
   els.addCategory.innerHTML = '';
   for (const d of DEPARTMENTS) {
@@ -392,6 +413,74 @@ function populateAddCategory() {
   els.addCategory.appendChild(other);
 }
 
+function renderAddCards() {
+  els.addCards.innerHTML = '';
+  for (const it of QUICK_ITEMS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'add-card' + (it.other ? ' other' : '');
+    b.innerHTML = `<span class="ic">${it.icon}</span>${escapeHtml(it.label)}`;
+    b.addEventListener('click', () => onCardTap(it));
+    els.addCards.appendChild(b);
+  }
+}
+
+const getAddQty = () => Math.max(1, parseInt(els.addQty.value, 10) || 1);
+
+function readAddPrice() {
+  const price = parseFloat(els.addPrice.value);
+  if (isNaN(price) || price < 0) {
+    els.addHint.textContent = 'Enter the price first (it’s on the item’s sticker).';
+    els.addPrice.focus();
+    return null;
+  }
+  return price;
+}
+
+function onCardTap(item) {
+  if (item.other) {
+    els.addCards.classList.add('hidden');
+    els.addOtherRow.classList.remove('hidden');
+    setTimeout(() => els.addName.focus(), 30);
+    return;
+  }
+  const price = readAddPrice();
+  if (price == null) return;
+  addCustomItem({ name: item.label, price, qty: getAddQty(), taxable: els.addTaxable.checked, deptKey: item.deptKey });
+}
+
+function addCustomItem({ name, price, qty, taxable, deptKey }) {
+  state.cart.unshift({
+    upc: `custom-${Date.now()}`,
+    custom: true,
+    description: name,
+    brand: '',
+    size: '',
+    regularPrice: price,
+    promoPrice: null,
+    imageUrl: null,
+    qty,
+    taxable,
+    deptKey: deptKey || 'other',
+    categories: [],
+  });
+  saveState();
+  render();
+  closeQuickAdd();
+  setStatus(`Added "${name}" — ${money(price)}.`, 'ok');
+}
+
+function submitOtherItem() {
+  const name = els.addName.value.trim();
+  if (!name) {
+    els.addName.focus();
+    return;
+  }
+  const price = readAddPrice();
+  if (price == null) return;
+  addCustomItem({ name, price, qty: getAddQty(), taxable: els.addTaxable.checked, deptKey: els.addCategory.value });
+}
+
 function openQuickAdd({ deptKey = '', storeWeighted = false, price = null } = {}) {
   addModalOpen = true;
   if (scanner) {
@@ -399,17 +488,20 @@ function openQuickAdd({ deptKey = '', storeWeighted = false, price = null } = {}
       scanner.pause(true);
     } catch (_) {}
   }
-  els.addForm.reset();
+  els.addPrice.value = price != null ? price.toFixed(2) : '';
   els.addQty.value = '1';
-  if (deptKey) els.addCategory.value = deptKey;
-  if (price != null) els.addPrice.value = price.toFixed(2);
+  els.addTaxable.checked = false;
+  els.addName.value = '';
+  els.addCategory.value = deptKey || 'other';
+  els.addOtherRow.classList.add('hidden');
+  els.addCards.classList.remove('hidden');
   els.addHint.textContent = storeWeighted
     ? price != null
-      ? `Read $${price.toFixed(2)} from the barcode (the regular/total price). Check it against what you'll pay — card or markdown prices can differ — then add.`
-      : 'Store-weighed item (not in Kroger’s catalog). Enter its name and the price from the sticker.'
-    : 'Add meat, deli, produce or anything that won’t scan. The price is on the item’s sticker.';
+      ? `Read $${price.toFixed(2)} from the barcode (regular/total price — card or markdown prices may differ). Tap what it is:`
+      : 'Store-weighed item. Enter the sticker price, then tap what it is:'
+    : 'Enter the price, then tap what it is:';
   els.addModal.classList.remove('hidden');
-  setTimeout(() => els.addName.focus(), 50);
+  if (price == null) setTimeout(() => els.addPrice.focus(), 50);
 }
 
 function closeQuickAdd() {
@@ -421,39 +513,6 @@ function closeQuickAdd() {
       scanner.resume();
     } catch (_) {}
   }
-}
-
-function submitQuickAdd(e) {
-  e.preventDefault();
-  const name = els.addName.value.trim();
-  const price = parseFloat(els.addPrice.value);
-  const qty = Math.max(1, parseInt(els.addQty.value, 10) || 1);
-  if (!name) {
-    els.addName.focus();
-    return;
-  }
-  if (isNaN(price) || price < 0) {
-    els.addPrice.focus();
-    return;
-  }
-  state.cart.unshift({
-    upc: `custom-${Date.now()}`,
-    custom: true,
-    description: name,
-    brand: '',
-    size: '',
-    regularPrice: price,
-    promoPrice: null,
-    imageUrl: null,
-    qty,
-    taxable: els.addTaxable.checked,
-    deptKey: els.addCategory.value || 'other',
-    categories: [],
-  });
-  saveState();
-  render();
-  closeQuickAdd();
-  setStatus(`Added "${name}" — ${money(price)}.`, 'ok');
 }
 
 // ---- Finish & save a trip --------------------------------------------------
@@ -1127,7 +1186,13 @@ els.breakdownModal.addEventListener('click', (e) => {
 });
 
 els.addItemBtn.addEventListener('click', () => openQuickAdd({}));
-els.addForm.addEventListener('submit', submitQuickAdd);
+els.addOtherSubmit.addEventListener('click', submitOtherItem);
+els.addName.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    submitOtherItem();
+  }
+});
 els.addCancel.addEventListener('click', closeQuickAdd);
 els.addModal.addEventListener('click', (e) => {
   if (e.target === els.addModal) closeQuickAdd();
@@ -1143,6 +1208,7 @@ els.tripsModal.addEventListener('click', (e) => {
 
 // ---- Init ------------------------------------------------------------------
 populateAddCategory();
+renderAddCards();
 render();
 updateTripBadge();
 
