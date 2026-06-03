@@ -78,6 +78,7 @@ function saveTrips(trips) {
 // ---- Element refs ----------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const els = {
+  themeToggle: $('themeToggle'),
   status: $('status'),
   startScanBtn: $('startScanBtn'),
   stopScanBtn: $('stopScanBtn'),
@@ -143,6 +144,36 @@ function setStatus(msg, kind = '') {
   els.status.className = `status ${kind}`;
 }
 
+// ---- Icons -----------------------------------------------------------------
+// Inline the sprite symbols into <svg data-ic> placeholders so currentColor and
+// class-based styling resolve (works for both static and dynamically-built DOM).
+const ICONS = {};
+function buildIconMap() {
+  document.querySelectorAll('#sprite symbol').forEach((s) => {
+    ICONS[s.id] = s.innerHTML;
+  });
+}
+function hydrateIcons(root) {
+  (root || document).querySelectorAll('svg[data-ic]').forEach((svg) => {
+    if (svg.firstChild) return;
+    const k = svg.getAttribute('data-ic');
+    if (ICONS[k]) svg.innerHTML = ICONS[k];
+  });
+}
+const ic = (id, w) =>
+  `<svg class="ico" data-ic="${id}" viewBox="0 0 24 24"${w ? ` style="width:${w}px;height:${w}px"` : ''}></svg>`;
+
+// Department key -> sprite icon for cart thumbnails.
+const DEPT_ICON = {
+  meat: 'f-beef', produce: 'f-produce', dairy: 'f-cheese', bakery: 'f-bakery',
+  deli: 'f-deli', frozen: 'i-bag', beverages: 'i-bag', snacks: 'i-bag',
+  pantry: 'i-bag', household: 'i-bag', personal: 'i-bag', other: 'i-barcode',
+};
+function subIcon(name) {
+  const m = { Chicken: 'f-chicken', Beef: 'f-beef', 'Ground Beef': 'f-ground', Pork: 'f-pork', Turkey: 'f-turkey', Seafood: 'f-fish', Shrimp: 'f-shrimp' };
+  return m[name];
+}
+
 // ---- Cart operations -------------------------------------------------------
 function addProductToCart(product) {
   const existing = state.cart.find((i) => i.upc === product.upc);
@@ -187,8 +218,9 @@ function removeItem(upc) {
 
 // ---- Rendering -------------------------------------------------------------
 function render() {
-  // Store label
+  // Store chip
   els.storeLabel.textContent = state.store ? state.store.name : 'Pick a store';
+  els.storeBtn.classList.toggle('is-empty', !state.store);
 
   // Tax input reflects stored rate
   if (document.activeElement !== els.taxRate) {
@@ -204,11 +236,13 @@ function render() {
   for (const item of state.cart) {
     els.cartList.appendChild(renderItem(item, unitPrice(item) * item.qty));
   }
+  hydrateIcons(els.cartList);
 
   const { subtotal, tax, total } = computeTotals();
   els.subtotal.textContent = money(subtotal);
   els.taxAmount.textContent = money(tax);
   els.total.textContent = money(total);
+  els.finishTripBtn.disabled = state.cart.length === 0;
 }
 
 // Subtotal, tax (on the taxable portion), and grand total for the current cart.
@@ -313,40 +347,39 @@ function computeBreakdown() {
   return { total, depts };
 }
 
+const BD_COLORS = ['#0a4b9c', '#1e8a52', '#e07a3c', '#7b5ea7', '#2aa7b5', '#b9780f', '#8a93a0'];
+
 function renderBreakdown() {
   const { total, depts } = computeBreakdown();
-  els.breakdownTotal.textContent = total ? `Total ${money(total)}` : '';
+  els.breakdownTotal.textContent = money(total);
   els.breakdownList.innerHTML = '';
   if (!depts.length || !total) {
-    els.breakdownList.innerHTML =
-      '<li class="empty-hint">Add items (with prices) to see the breakdown.</li>';
+    els.breakdownList.innerHTML = '<div class="empty-hint">Add items (with prices) to see the breakdown.</div>';
     return;
   }
-  for (const d of depts) {
+  depts.forEach((d, i) => {
+    const color = BD_COLORS[i % BD_COLORS.length];
     const pct = Math.round((d.total / total) * 100);
     const subs = Object.entries(d.subs).sort((a, b) => b[1] - a[1]);
     const subHtml = subs
-      .map(
-        ([name, amt]) =>
-          `<div class="bd-line"><span>${escapeHtml(name)}</span><span>${money(amt)}</span></div>`
-      )
+      .map(([name, amt]) => `<div class="bd-sub-row"><span class="nm">${escapeHtml(name)}</span><span class="vl">${money(amt)}</span></div>`)
       .join('');
-    const li = document.createElement('li');
-    li.className = 'bd-item';
-    li.innerHTML = `
-      <details>
-        <summary>
-          <div class="bd-row">
-            <span class="bd-name">${d.icon} ${escapeHtml(d.name)}</span>
-            <span class="bd-amt">${money(d.total)} · ${pct}%</span>
-          </div>
-          <div class="bd-bar"><div class="bd-fill" style="width:${pct}%"></div></div>
-        </summary>
-        <div class="bd-subs">${subHtml}</div>
-      </details>
+    const row = document.createElement('div');
+    row.className = 'bd-cat';
+    row.innerHTML = `
+      <div class="bd-cat-head">
+        <span class="bd-swatch" style="background:${color}"></span>
+        <span class="bd-cat-name">${escapeHtml(d.name)}</span>
+        <span class="bd-cat-amt">${money(d.total)}</span><span class="bd-cat-pct">${pct}%</span>
+        <svg class="ico bd-chev" data-ic="i-chev-right" viewBox="0 0 24 24" style="width:18px;height:18px"></svg>
+      </div>
+      <div class="bd-bar"><i style="width:${pct}%;background:${color}"></i></div>
+      <div class="bd-sub">${subHtml}</div>
     `;
-    els.breakdownList.appendChild(li);
-  }
+    row.querySelector('.bd-cat-head').addEventListener('click', () => row.classList.toggle('open'));
+    els.breakdownList.appendChild(row);
+  });
+  hydrateIcons(els.breakdownList);
 }
 
 function openBreakdownModal() {
@@ -384,19 +417,19 @@ function extractStorePrice(code) {
 // name and its department (so it flows into the breakdown). "Other" reveals a
 // free-text box.
 const QUICK_ITEMS = [
-  { label: 'Beef', icon: '🥩', deptKey: 'meat' },
-  { label: 'Ground Beef', icon: '🍔', deptKey: 'meat' },
-  { label: 'Steak', icon: '🥩', deptKey: 'meat' },
-  { label: 'Chicken', icon: '🍗', deptKey: 'meat' },
-  { label: 'Pork', icon: '🥓', deptKey: 'meat' },
-  { label: 'Turkey', icon: '🦃', deptKey: 'meat' },
-  { label: 'Seafood', icon: '🐟', deptKey: 'meat' },
-  { label: 'Shrimp', icon: '🦐', deptKey: 'meat' },
-  { label: 'Deli Meat', icon: '🥪', deptKey: 'deli' },
-  { label: 'Deli Cheese', icon: '🧀', deptKey: 'deli' },
-  { label: 'Bakery', icon: '🍞', deptKey: 'bakery' },
-  { label: 'Produce', icon: '🥬', deptKey: 'produce' },
-  { label: 'Other…', icon: '✏️', other: true },
+  { label: 'Beef', icon: 'f-beef', deptKey: 'meat' },
+  { label: 'Ground Beef', icon: 'f-ground', deptKey: 'meat' },
+  { label: 'Steak', icon: 'f-beef', deptKey: 'meat' },
+  { label: 'Chicken', icon: 'f-chicken', deptKey: 'meat' },
+  { label: 'Pork', icon: 'f-pork', deptKey: 'meat' },
+  { label: 'Turkey', icon: 'f-turkey', deptKey: 'meat' },
+  { label: 'Seafood', icon: 'f-fish', deptKey: 'meat' },
+  { label: 'Shrimp', icon: 'f-shrimp', deptKey: 'meat' },
+  { label: 'Deli Meat', icon: 'f-deli', deptKey: 'deli' },
+  { label: 'Deli Cheese', icon: 'f-cheese', deptKey: 'deli' },
+  { label: 'Bakery', icon: 'f-bakery', deptKey: 'bakery' },
+  { label: 'Produce', icon: 'f-produce', deptKey: 'produce' },
+  { label: 'Other…', icon: 'f-other', other: true },
 ];
 
 function populateAddCategory() {
@@ -418,11 +451,12 @@ function renderAddCards() {
   for (const it of QUICK_ITEMS) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'add-card' + (it.other ? ' other' : '');
-    b.innerHTML = `<span class="ic">${it.icon}</span>${escapeHtml(it.label)}`;
+    b.className = 'qa-card' + (it.other ? ' qa-other' : '');
+    b.innerHTML = `<span class="ico-chip">${ic(it.icon)}</span><span class="qa-label">${escapeHtml(it.label)}</span>`;
     b.addEventListener('click', () => onCardTap(it));
     els.addCards.appendChild(b);
   }
+  hydrateIcons(els.addCards);
 }
 
 const getAddQty = () => Math.max(1, parseInt(els.addQty.value, 10) || 1);
@@ -439,8 +473,7 @@ function readAddPrice() {
 
 function onCardTap(item) {
   if (item.other) {
-    els.addCards.classList.add('hidden');
-    els.addOtherRow.classList.remove('hidden');
+    els.addOtherRow.classList.add('open');
     setTimeout(() => els.addName.focus(), 30);
     return;
   }
@@ -493,8 +526,7 @@ function openQuickAdd({ deptKey = '', storeWeighted = false, price = null } = {}
   els.addTaxable.checked = false;
   els.addName.value = '';
   els.addCategory.value = deptKey || 'other';
-  els.addOtherRow.classList.add('hidden');
-  els.addCards.classList.remove('hidden');
+  els.addOtherRow.classList.remove('open');
   els.addHint.textContent = storeWeighted
     ? price != null
       ? `Read $${price.toFixed(2)} from the barcode (regular/total price — card or markdown prices may differ). Tap what it is:`
@@ -569,55 +601,45 @@ function renderTrips() {
   els.tripCount.textContent = trips.length;
   els.exportTripsBtn.disabled = trips.length === 0;
   if (!trips.length) {
-    els.tripsList.innerHTML =
-      '<li class="empty-hint">No saved trips yet. Tap “Finish &amp; save trip” after shopping.</li>';
+    els.tripsList.innerHTML = '<div class="empty-hint">No saved trips yet. Tap “Finish &amp; save trip” after shopping.</div>';
     return;
   }
   els.tripsList.innerHTML = '';
   for (const trip of trips) {
-    const li = document.createElement('li');
-    li.className = 'trip-item';
-    const when = new Date(trip.savedAt).toLocaleString([], {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+    const d = new Date(trip.savedAt);
+    const mo = d.toLocaleString([], { month: 'short' });
+    const dy = d.getDate();
     const storeName = trip.store ? trip.store.name : 'No store';
     const itemsHtml = trip.items
-      .map(
-        (it) =>
-          `<div class="trip-line"><span>${it.qty}× ${escapeHtml(it.description)}</span><span>${money(
-            it.unitPrice * it.qty
-          )}</span></div>`
-      )
+      .map((it) => `<div class="trip-line"><span class="nm"><b>${escapeHtml(it.description)}</b> ×${it.qty}</span><span class="vl">${money(it.unitPrice * it.qty)}</span></div>`)
       .join('');
-    li.innerHTML = `
-      <details>
-        <summary>
-          <div class="trip-summary">
-            <div>
-              <div class="trip-when">${when}</div>
-              <div class="trip-store">${escapeHtml(storeName)} · ${trip.itemCount} items</div>
-            </div>
-            <div class="trip-total">${money(trip.total)}</div>
-          </div>
-        </summary>
-        <div class="trip-details">
-          ${itemsHtml}
-          <div class="trip-line trip-tax"><span>Tax (${trip.taxRate}%)</span><span>${money(trip.tax)}</span></div>
-          <button type="button" class="remove-btn" data-del="${trip.id}">Delete this trip</button>
-        </div>
-      </details>
+    const wrap = document.createElement('div');
+    wrap.className = 'trip';
+    wrap.innerHTML = `
+      <div class="trip-head">
+        <span class="trip-cal"><span class="mo">${mo}</span><span class="dy">${dy}</span></span>
+        <div class="trip-main"><div class="trip-store">${escapeHtml(storeName)}</div><div class="trip-meta">${trip.itemCount} items · ${trip.taxRate}% tax</div></div>
+        <span class="trip-total">${money(trip.total)}</span>
+        <svg class="ico trip-chev" data-ic="i-chev-right" viewBox="0 0 24 24" style="width:18px;height:18px"></svg>
+      </div>
+      <div class="trip-body">
+        ${itemsHtml}
+        <div class="trip-line"><span class="nm">Tax (${trip.taxRate}%)</span><span class="vl">${money(trip.tax)}</span></div>
+        <div class="trip-actions"><button type="button" class="linkbtn danger" data-del="${trip.id}">${ic('i-trash', 16)}Delete trip</button></div>
+      </div>
     `;
-    li.querySelector('[data-del]').addEventListener('click', () => {
+    wrap.querySelector('.trip-head').addEventListener('click', () => wrap.classList.toggle('open'));
+    wrap.querySelector('[data-del]').addEventListener('click', (e) => {
+      e.stopPropagation();
       if (confirm('Delete this saved trip?')) {
         saveTrips(loadTrips().filter((t) => t.id !== trip.id));
+        updateTripBadge();
         renderTrips();
       }
     });
-    els.tripsList.appendChild(li);
+    els.tripsList.appendChild(wrap);
   }
+  hydrateIcons(els.tripsList);
 }
 
 // Download all saved trips as JSON so the data is portable / future-proof.
@@ -651,51 +673,50 @@ function renderItem(item, line) {
   const onSale = item.promoPrice != null && item.regularPrice != null;
   const noPrice = item.regularPrice == null && item.promoPrice == null;
 
-  const meta = [];
-  if (item.brand) meta.push(item.brand);
-  if (item.size) meta.push(item.size);
-  const metaText = meta.join(' · ');
+  const cat = categorize(item);
+  const thumbIcon = subIcon(cat.sub) || DEPT_ICON[cat.key] || 'i-barcode';
+  const thumb = item.imageUrl
+    ? `<div class="ci-thumb"><img src="${item.imageUrl}" alt="" loading="lazy" /></div>`
+    : `<div class="ci-thumb">${ic(thumbIcon)}</div>`;
 
-  const priceLine = noPrice
-    ? '<span class="promo">no price for this store</span>'
-    : onSale
-    ? `<span class="promo">SALE ${money(unit)}</span> <s>${money(item.regularPrice)}</s> ea`
-    : `${money(unit)} ea`;
+  const metaBits = [];
+  if (item.brand) metaBits.push(escapeHtml(item.brand));
+  if (item.size) metaBits.push(escapeHtml(item.size));
+  if (!noPrice) metaBits.push(`${money(unit)} / ea`);
+  else metaBits.push(state.store ? 'no price' : 'pick a store');
+  const meta = metaBits.join('<span class="dot">·</span>');
+  const saleTag = onSale ? `<span class="sale-tag">${ic('i-tag', 11)}SALE</span>` : '';
+
+  const total = onSale
+    ? `<span class="ci-sale-old">${money(item.regularPrice * item.qty)}</span>${money(line)}`
+    : money(line);
 
   li.innerHTML = `
-    ${
-      item.imageUrl
-        ? `<img src="${item.imageUrl}" alt="" loading="lazy" />`
-        : `<div class="noimg">🛒</div>`
-    }
-    <div class="item-main">
-      <div class="item-name">${escapeHtml(item.description)}</div>
-      <div class="item-meta">${escapeHtml(metaText)}${metaText ? ' · ' : ''}${priceLine}</div>
+    ${thumb}
+    <div class="ci-info">
+      <div class="ci-name">${escapeHtml(item.description)}</div>
+      <div class="ci-meta">${meta}</div>
+      ${saleTag}
     </div>
-    <div class="item-right">
-      <div class="line-price">${money(line)}</div>
-      <div class="qty">
-        <button type="button" data-act="dec" aria-label="decrease">−</button>
-        <span>${item.qty}</span>
-        <button type="button" data-act="inc" aria-label="increase">+</button>
+    <div class="ci-total">${total}</div>
+    <div class="ci-ctrl">
+      <div class="stepper">
+        <button type="button" data-act="dec" aria-label="Decrease">${ic('i-minus')}</button>
+        <span class="qty">${item.qty}</span>
+        <button type="button" data-act="inc" aria-label="Increase">${ic('i-plus')}</button>
       </div>
-    </div>
-    <div class="item-extra">
-      <label class="taxable-toggle">
-        <input type="checkbox" data-act="tax" ${item.taxable ? 'checked' : ''} />
-        Taxable
-      </label>
-      <button type="button" class="remove-btn" data-act="remove">Remove</button>
+      <label class="switch tax-toggle"><input type="checkbox" data-act="tax" ${item.taxable ? 'checked' : ''} /><span class="track"></span><span class="switch-label">Tax</span></label>
+      <button type="button" class="remove-btn" data-act="remove" aria-label="Remove">${ic('i-trash')}</button>
     </div>
   `;
 
   li.addEventListener('click', (e) => {
-    const act = e.target.getAttribute('data-act');
+    const act = e.target.closest('[data-act]') && e.target.closest('[data-act]').getAttribute('data-act');
     if (act === 'inc') changeQty(item.upc, 1);
     else if (act === 'dec') changeQty(item.upc, -1);
     else if (act === 'remove') removeItem(item.upc);
-    else if (act === 'tax') toggleTaxable(item.upc);
   });
+  li.querySelector('[data-act="tax"]').addEventListener('change', () => toggleTaxable(item.upc));
 
   return li;
 }
@@ -790,27 +811,26 @@ function showConfirm(product) {
   const noPrice = p.regularPrice == null && p.promoPrice == null;
   const unit = unitPrice(p);
   const meta = [p.brand, p.size].filter(Boolean).join(' · ');
-  const priceText = noPrice
-    ? state.store
-      ? 'No price at your store'
-      : 'Pick a store to see price'
+  const priceHtml = noPrice
+    ? `<div class="confirm-price" style="font-size:var(--fs-base);color:var(--text-3)">${state.store ? 'No price at your store' : 'Pick a store to see price'}</div>`
     : onSale
-    ? `SALE ${money(unit)} (reg ${money(p.regularPrice)})`
-    : money(unit);
+    ? `<div class="confirm-price sale">${money(unit)} <s>${money(p.regularPrice)}</s></div>`
+    : `<div class="confirm-price">${money(unit)}</div>`;
+
+  const img = p.imageUrl
+    ? `<div class="confirm-img"><img src="${p.imageUrl}" alt="" /></div>`
+    : `<div class="confirm-img">${ic('i-barcode')}</div>`;
 
   els.confirmBody.innerHTML = `
-    ${
-      p.imageUrl
-        ? `<img src="${p.imageUrl}" alt="" />`
-        : `<div class="noimg">🛒</div>`
-    }
-    <div class="confirm-info">
+    ${img}
+    <div>
       <div class="confirm-name">${escapeHtml(p.description)}</div>
       ${meta ? `<div class="confirm-meta">${escapeHtml(meta)}</div>` : ''}
-      <div class="confirm-price">${priceText}</div>
-      <div class="confirm-upc">UPC ${escapeHtml(p.upc || '')}</div>
+      ${priceHtml}
+      <span class="upc-pill">${ic('i-barcode')}${escapeHtml(p.upc || '')}</span>
     </div>
   `;
+  hydrateIcons(els.confirmBody);
   els.confirmModal.classList.remove('hidden');
 }
 
@@ -1071,13 +1091,14 @@ function renderStoreOptions(locations) {
   }
   for (const loc of locations) {
     const li = document.createElement('li');
-    li.className = 'store-option';
+    li.className = 'store-row';
+    if (state.store && state.store.locationId === loc.locationId) li.classList.add('is-active');
     const addr = loc.address
-      ? `${loc.address.addressLine1 || ''}, ${loc.address.city || ''} ${loc.address.state || ''}`
+      ? `${loc.address.addressLine1 || ''}, ${loc.address.city || ''} ${loc.address.state || ''}`.trim()
       : '';
     li.innerHTML = `
-      <div class="s-name">${escapeHtml(loc.name)}</div>
-      <div class="s-addr">${escapeHtml(addr)}</div>
+      <span class="store-radio"></span>
+      <div><div class="store-name">${escapeHtml(loc.name)}</div><div class="store-addr">${escapeHtml(addr)}</div></div>
     `;
     li.addEventListener('click', () => {
       state.store = { locationId: loc.locationId, name: loc.name };
@@ -1124,7 +1145,7 @@ els.taxRate.addEventListener('input', () => {
 els.storeBtn.addEventListener('click', openStoreModal);
 els.closeStoreBtn.addEventListener('click', closeStoreModal);
 els.storeModal.addEventListener('click', (e) => {
-  if (e.target === els.storeModal) closeStoreModal();
+  if (e.target.classList.contains('scrim')) closeStoreModal();
 });
 els.storeForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -1151,7 +1172,7 @@ els.confirmNo.addEventListener('click', () => {
   closeConfirm(true);
 });
 els.confirmModal.addEventListener('click', (e) => {
-  if (e.target === els.confirmModal) {
+  if (e.target.classList.contains('scrim')) {
     lastScan = { code: null, at: 0 };
     closeConfirm(true);
   }
@@ -1182,7 +1203,7 @@ els.zoomRange.addEventListener('input', () => applyZoom(els.zoomRange.value));
 els.breakdownBtn.addEventListener('click', openBreakdownModal);
 els.closeBreakdownBtn.addEventListener('click', closeBreakdownModal);
 els.breakdownModal.addEventListener('click', (e) => {
-  if (e.target === els.breakdownModal) closeBreakdownModal();
+  if (e.target.classList.contains('scrim')) closeBreakdownModal();
 });
 
 els.addItemBtn.addEventListener('click', () => openQuickAdd({}));
@@ -1195,7 +1216,7 @@ els.addName.addEventListener('keydown', (e) => {
 });
 els.addCancel.addEventListener('click', closeQuickAdd);
 els.addModal.addEventListener('click', (e) => {
-  if (e.target === els.addModal) closeQuickAdd();
+  if (e.target.classList.contains('scrim')) closeQuickAdd();
 });
 
 els.finishTripBtn.addEventListener('click', finishTrip);
@@ -1203,13 +1224,26 @@ els.tripsBtn.addEventListener('click', openTripsModal);
 els.closeTripsBtn.addEventListener('click', closeTripsModal);
 els.exportTripsBtn.addEventListener('click', exportTrips);
 els.tripsModal.addEventListener('click', (e) => {
-  if (e.target === els.tripsModal) closeTripsModal();
+  if (e.target.classList.contains('scrim')) closeTripsModal();
+});
+
+// Theme toggle (initial theme already applied by the inline <head> script).
+els.themeToggle.addEventListener('click', () => {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const next = dark ? 'light' : 'dark';
+  if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  try {
+    localStorage.setItem('krogerbuddy.theme', next);
+  } catch (_) {}
 });
 
 // ---- Init ------------------------------------------------------------------
+buildIconMap();
 populateAddCategory();
 renderAddCards();
 render();
+hydrateIcons(document);
 updateTripBadge();
 
 // Debug panel wiring (only when ?debug=1).

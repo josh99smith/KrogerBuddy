@@ -6,205 +6,261 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#0a4b9c" />
+    <meta name="theme-color" content="#0a4b9c" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d1014" media="(prefers-color-scheme: dark)" />
     <title>KrogerBuddy</title>
     <link rel="manifest" href="manifest.json" />
     <link rel="apple-touch-icon" href="icons/icon-192.png" />
-    <link rel="stylesheet" href="styles.css" />
-    <!-- Barcode scanning via device camera -->
+    <link rel="stylesheet" href="styles.css?v=15" />
+    <script>
+      // Set theme before paint to avoid a flash.
+      (function () {
+        try {
+          var t = localStorage.getItem('krogerbuddy.theme');
+          if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        } catch (e) {}
+      })();
+    </script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   </head>
   <body>
-    <header class="app-header">
-      <div class="brand">
-        <span class="brand-mark">🛒</span>
-        <h1>KrogerBuddy</h1>
-      </div>
-      <div class="header-actions">
-        <button id="installBtn" class="icon-chip hidden" type="button" aria-label="Install app">
-          ⬇ Install
-        </button>
-        <button id="tripsBtn" class="icon-chip hidden" type="button" aria-label="Saved trips">
-          🗂️ <span id="tripCount" class="count">0</span>
-        </button>
-        <button id="storeBtn" class="store-chip" type="button">
-          <span id="storeLabel">Pick a store</span>
-        </button>
-      </div>
-    </header>
+    <!-- Icon sprite -->
+    <svg id="sprite" width="0" height="0" style="position:absolute" aria-hidden="true">
+      <symbol id="i-bag" viewBox="0 0 24 24"><path d="M5.4 8h13.2l-.9 11.2A1.8 1.8 0 0 1 15.9 21H8.1a1.8 1.8 0 0 1-1.8-1.8L5.4 8Z"/><path class="ln" d="M8.5 8.5V7a3.5 3.5 0 0 1 7 0v1.5"/></symbol>
+      <symbol id="i-store" viewBox="0 0 24 24"><path d="M4 4h16l1.4 4.2a2.4 2.4 0 0 1-4.6 1.3 2.4 2.4 0 0 1-4.8 0 2.4 2.4 0 0 1-4.8 0A2.4 2.4 0 0 1 2.6 8.2L4 4Z" opacity=".85"/><path class="ln" d="M5 11v8h14v-8M10 19v-4h4v4"/></symbol>
+      <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M7 3h10a1.5 1.5 0 0 1 1.5 1.5V21l-6.5-3.4L5.5 21V4.5A1.5 1.5 0 0 1 7 3Z"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path class="ln" d="M12 4v10m0 0 4-4m-4 4-4-4M5 18.5h14"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.4"/><path class="ln" d="M12 2.5v2.2M12 19.3v2.2M21.5 12h-2.2M4.7 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9 5.3 5.3"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 14.2A8.2 8.2 0 1 1 10 3.6a6.6 6.6 0 0 0 10.5 10.6Z"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.2l1-1.6A1.6 1.6 0 0 1 9 3.6h6a1.6 1.6 0 0 1 1.3.8l1 1.6h1.2A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-8Z" opacity=".9"/><circle cx="12" cy="12.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+      <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M3 5h1.6v14H3zM6 5h1v14H6zM9 5h2v14H9zM12.5 5h1v14h-1zM15 5h1.6v14H15zM18 5h1v14h-1zM20.4 5H22v14h-1.6z"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path class="ln" d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path class="ln" d="M5 12h14"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path class="ln" d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5"/></symbol>
+      <symbol id="i-chev-down" viewBox="0 0 24 24"><path class="ln" d="M5 8.5l7 7 7-7"/></symbol>
+      <symbol id="i-chev-right" viewBox="0 0 24 24"><path class="ln" d="M9 5l7 7-7 7"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path class="ln" d="M4.5 7h15M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7M7 7l.9 12.1A1.6 1.6 0 0 0 9.5 20.6h5a1.6 1.6 0 0 0 1.6-1.5L17 7"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle class="ln" cx="11" cy="11" r="6.4"/><path class="ln" d="M16 16l4.2 4.2"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path class="ln" d="M5 12.5l4.5 4.5L19.5 7"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" opacity=".18"/><path class="ln" d="M12 7.5v5.5M12 16.4v.1"/></symbol>
+      <symbol id="i-pie" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9V3Z" opacity=".4"/><path class="ln" d="M12 3a9 9 0 1 0 9 9h-9V3Z"/></symbol>
+      <symbol id="i-tag" viewBox="0 0 24 24"><path class="ln" d="M4 11.5V5a1 1 0 0 1 1-1h6.5L20 12.5 12.5 20 4 11.5Z"/><circle cx="8" cy="8" r="1.4"/></symbol>
+      <symbol id="i-export" viewBox="0 0 24 24"><path class="ln" d="M12 15V4m0 0 4 4m-4-4-4 4M5 14v4.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V14"/></symbol>
+      <symbol id="f-beef" viewBox="0 0 24 24"><path d="M5 11.5C5 7.9 8.3 5.5 12.2 5.5S19 7.7 19 11.2c0 3.9-3.4 6.8-7.3 6.8-2.2 0-4-.7-5.2-2 .9-.2 1.6-1 1.6-2a2 2 0 0 0-3-1.7 6 6 0 0 1-.1-.8Z"/><circle cx="13.5" cy="11" r="2" style="fill:var(--brand-tint)"/></symbol>
+      <symbol id="f-ground" viewBox="0 0 24 24"><path d="M4 16.5c0-3.8 3.6-6.5 8-6.5s8 2.7 8 6.5v.5H4v-.5Z"/><circle cx="8.5" cy="14.5" r="1"/><circle cx="12.5" cy="13.5" r="1"/><circle cx="15.5" cy="15" r="1"/></symbol>
+      <symbol id="f-chicken" viewBox="0 0 24 24"><path d="M14.5 4a5 5 0 0 1 3.8 8.2c-1.6 1.9-4.3 2.2-6.2.9l-4 4a2 2 0 1 1-1.4-1.4l4-4c-1.3-1.9-1-4.6.9-6.2A5 5 0 0 1 14.5 4Z"/></symbol>
+      <symbol id="f-pork" viewBox="0 0 24 24"><path d="M6 9.5C6 6.7 8.7 5 12 5s6 1.7 6 4.5S15.3 18 12 18 6 12.3 6 9.5Z"/><path d="M12 18c-.6 1.3-2 2-3.2 1.4" class="ln"/></symbol>
+      <symbol id="f-turkey" viewBox="0 0 24 24"><path d="M12 5c3.6 0 6.5 2.6 6.5 6 0 3.9-2.9 6.5-6.5 6.5S5.5 14.9 5.5 11C5.5 7.6 8.4 5 12 5Z"/><path class="ln" d="M8.5 19l1.5-2.2M15.5 19 14 16.8" style="stroke-width:2.2"/></symbol>
+      <symbol id="f-fish" viewBox="0 0 24 24"><path d="M3 12c2.4-3.4 6-5 9.3-5 2.6 0 4.9 1 6.7 2.6L22 7l-1 5 1 5-3-2.6C17.2 16 14.9 17 12.3 17 9 17 5.4 15.4 3 12Z"/><circle cx="8" cy="11" r="1" style="fill:var(--brand-tint)"/></symbol>
+      <symbol id="f-shrimp" viewBox="0 0 24 24"><path d="M18 6c-3 0-5 2-7 4s-4 3-6 2c2 4 6 6 9 5 3.5-1.2 5-4 4-7 .8.2 1.6-.2 2-1-1-1-2.5-1-3.5-.3C17 8 17.7 6.9 18 6Z"/></symbol>
+      <symbol id="f-deli" viewBox="0 0 24 24"><ellipse cx="12" cy="8" rx="8" ry="3"/><ellipse cx="12" cy="12.5" rx="8" ry="3" opacity=".7"/><ellipse cx="12" cy="17" rx="8" ry="3" opacity=".45"/></symbol>
+      <symbol id="f-cheese" viewBox="0 0 24 24"><path d="M4 16l9-9 7 4v5H4Z"/><circle cx="9" cy="14" r="1.1" style="fill:var(--brand-tint)"/><circle cx="14" cy="13.5" r="1.1" style="fill:var(--brand-tint)"/></symbol>
+      <symbol id="f-bakery" viewBox="0 0 24 24"><path d="M5 13c0-3 2.5-5 7-5s7 2 7 5a2 2 0 0 1-2 2v2H7v-2a2 2 0 0 1-2-2Z"/></symbol>
+      <symbol id="f-produce" viewBox="0 0 24 24"><path d="M12 8c-1-2-3.5-2.5-5 0-1.3 2.2-1 6 1.5 8.5 1.9 1.9 5.1 1.9 7 0C18 14 18.3 10.2 17 8c-1.5-2.5-4-2-5 0Z"/><path class="ln" style="stroke-width:2.2" d="M12 8V5.5c0-1 .8-1.7 2.2-1.6"/></symbol>
+      <symbol id="f-other" viewBox="0 0 24 24"><circle cx="7" cy="7" r="2.2"/><circle cx="17" cy="7" r="2.2"/><circle cx="7" cy="17" r="2.2"/><circle cx="17" cy="17" r="2.2"/></symbol>
+    </svg>
 
-    <main>
-      <!-- Scanner / entry -->
-      <section class="scan-card">
-        <div id="readerWrap" class="reader-wrap hidden">
-          <div id="reader"></div>
-          <div class="cam-controls">
-            <select id="cameraSelect" class="cam-select hidden" aria-label="Choose camera"></select>
-            <label id="zoomWrap" class="zoom-wrap hidden">
-              <span aria-hidden="true">🔍</span>
-              <input
-                id="zoomRange"
-                type="range"
-                min="1"
-                max="5"
-                step="0.1"
-                value="1"
-                aria-label="Camera zoom"
-              />
-            </label>
+    <div id="app">
+      <header class="appbar">
+        <div class="appbar-top">
+          <div class="brand">
+            <span class="brand-mark"><svg class="ico" data-ic="i-bag" viewBox="0 0 24 24"></svg></span>
+            <span class="brand-name">Kroger<b>Buddy</b></span>
           </div>
-          <button id="stopScanBtn" class="ghost-btn" type="button">Stop camera</button>
+          <div class="appbar-actions">
+            <button id="themeToggle" class="iconbtn" type="button" aria-label="Switch theme">
+              <svg class="ico ic-sun" data-ic="i-sun" viewBox="0 0 24 24"></svg>
+              <svg class="ico ic-moon" data-ic="i-moon" viewBox="0 0 24 24"></svg>
+            </button>
+            <button id="installBtn" class="iconbtn hidden" type="button" aria-label="Install app">
+              <svg class="ico" data-ic="i-download" viewBox="0 0 24 24"></svg>
+            </button>
+            <button id="tripsBtn" class="iconbtn hidden" type="button" aria-label="Saved trips">
+              <svg class="ico" data-ic="i-bookmark" viewBox="0 0 24 24"></svg>
+              <span id="tripCount" class="count-badge">0</span>
+            </button>
+          </div>
         </div>
-
-        <div id="scanControls" class="scan-controls">
-          <button id="startScanBtn" class="primary-btn" type="button">
-            📷 Scan a barcode
+        <div class="chip-row">
+          <button id="storeBtn" class="chip is-empty" type="button">
+            <svg class="ico ico-lead" data-ic="i-store" viewBox="0 0 24 24"></svg>
+            <span class="chip-label" id="storeLabel">Pick a store</span>
+            <svg class="ico ico-trail" data-ic="i-chev-down" viewBox="0 0 24 24"></svg>
           </button>
-          <form id="manualForm" class="manual-form">
-            <input
-              id="manualUpc"
-              inputmode="numeric"
-              pattern="\d*"
-              placeholder="…or type a UPC"
-              aria-label="Enter UPC manually"
-            />
-            <button class="secondary-btn" type="submit">Add</button>
-          </form>
-          <button id="addItemBtn" class="ghost-btn" type="button">
-            ➕ Add item manually (meat, deli, produce…)
-          </button>
         </div>
-        <p id="status" class="status" role="status" aria-live="polite"></p>
-      </section>
+      </header>
 
-      <!-- Cart -->
-      <section class="cart">
-        <div class="cart-head">
-          <h2>Cart <span id="itemCount" class="count">0</span></h2>
-          <span class="cart-head-actions">
-            <button id="breakdownBtn" class="ghost-btn small" type="button">📊 Breakdown</button>
-            <button id="clearBtn" class="ghost-btn small" type="button">Clear</button>
+      <main class="screen-body">
+        <div class="stack">
+          <!-- Scan panel -->
+          <div class="card card-pad">
+            <div class="scan-actions">
+              <div id="readerWrap" class="camera hidden">
+                <div id="reader"></div>
+                <select id="cameraSelect" class="cam-select hidden" aria-label="Choose camera"></select>
+                <button id="stopScanBtn" class="cam-stop" type="button">
+                  <svg class="ico" data-ic="i-stop" viewBox="0 0 24 24"></svg>Stop
+                </button>
+                <label id="zoomWrap" class="cam-zoom hidden">
+                  <svg class="ico" data-ic="i-search" viewBox="0 0 24 24"></svg>
+                  <input id="zoomRange" type="range" class="zoom" min="1" max="5" step="0.1" value="1" aria-label="Camera zoom" />
+                </label>
+              </div>
+
+              <div id="scanControls" class="scan-actions">
+                <button id="startScanBtn" class="btn btn-primary btn-lg btn-block" type="button">
+                  <svg class="ico" data-ic="i-barcode" viewBox="0 0 24 24"></svg>Scan a barcode
+                </button>
+                <div>
+                  <label class="field-label">Type a UPC</label>
+                  <form id="manualForm" class="field-row">
+                    <input id="manualUpc" class="input input-mono" inputmode="numeric" pattern="\d*" placeholder="0 00000 00000 0" aria-label="Enter UPC manually" />
+                    <button class="btn btn-secondary" type="submit">Add</button>
+                  </form>
+                </div>
+                <button id="addItemBtn" class="btn btn-ghost btn-block dashed" type="button">
+                  <svg class="ico" data-ic="i-plus" viewBox="0 0 24 24"></svg>Add item manually
+                </button>
+              </div>
+
+              <p id="status" class="status" role="status" aria-live="polite"></p>
+            </div>
+          </div>
+
+          <!-- Cart -->
+          <div class="card card-pad">
+            <div class="cart-head">
+              <span class="section-title">Cart <span id="itemCount" class="pill-count">0</span></span>
+              <span class="spacer"></span>
+              <button id="breakdownBtn" class="linkbtn" type="button">
+                <svg class="ico" style="width:16px;height:16px" data-ic="i-pie" viewBox="0 0 24 24"></svg>Breakdown
+              </button>
+              <button id="clearBtn" class="linkbtn danger" type="button">Clear</button>
+            </div>
+            <ul id="cartList" class="cart-list"></ul>
+            <div id="emptyHint" class="empty">
+              <span class="empty-art"><svg class="ico" data-ic="i-bag" viewBox="0 0 24 24"></svg></span>
+              <h3>Your cart is empty</h3>
+              <p>Scan a barcode or add a store-weighed item to start. Your running total appears below.</p>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Sticky totals -->
+      <footer class="totals">
+        <div class="totals-line"><span>Subtotal</span><span class="val" id="subtotal">$0.00</span></div>
+        <div class="totals-line">
+          <span style="display:flex;align-items:center;gap:8px">Tax
+            <span class="tax-field"><input id="taxRate" value="0" aria-label="Tax percent" inputmode="decimal" /><span class="pct">%</span></span>
           </span>
+          <span class="val" id="taxAmount">$0.00</span>
         </div>
-        <ul id="cartList" class="cart-list"></ul>
-        <p id="emptyHint" class="empty-hint">
-          Scan an item to start your list. Prices come from your selected store.
-        </p>
-      </section>
-    </main>
-
-    <!-- Sticky totals -->
-    <footer class="totals">
-      <div class="totals-rows">
-        <div class="row"><span>Subtotal</span><span id="subtotal">$0.00</span></div>
-        <div class="row tax-row">
-          <span>
-            Tax
-            <input
-              id="taxRate"
-              class="tax-input"
-              inputmode="decimal"
-              value="0"
-            />%
-          </span>
-          <span id="taxAmount">$0.00</span>
-        </div>
-        <div class="row grand"><span>Total</span><span id="total">$0.00</span></div>
-      </div>
-      <button id="finishTripBtn" class="primary-btn finish-btn" type="button">
-        ✓ Finish &amp; save trip
-      </button>
-    </footer>
-
-    <!-- Store picker modal -->
-    <div id="storeModal" class="modal hidden">
-      <div class="modal-card">
-        <h3>Choose your store</h3>
-        <p class="modal-sub">Prices are specific to each Kroger-family store.</p>
-        <form id="storeForm" class="store-form">
-          <input
-            id="zipInput"
-            inputmode="numeric"
-            maxlength="5"
-            placeholder="ZIP code"
-            aria-label="ZIP code"
-          />
-          <button class="primary-btn" type="submit">Search</button>
-        </form>
-        <ul id="storeResults" class="store-results"></ul>
-        <button id="closeStoreBtn" class="ghost-btn" type="button">Close</button>
-      </div>
-    </div>
-
-    <!-- Add custom item modal -->
-    <div id="addModal" class="modal hidden">
-      <div class="modal-card">
-        <h3>Add item</h3>
-        <p class="modal-sub" id="addHint"></p>
-        <div class="add-pricerow">
-          <label class="fld">Price&nbsp;$<input id="addPrice" inputmode="decimal" placeholder="0.00" /></label>
-          <label class="fld qty-fld">Qty<input id="addQty" inputmode="numeric" value="1" /></label>
-          <label class="taxable-toggle"><input id="addTaxable" type="checkbox" /> Taxable</label>
-        </div>
-        <div id="addCards" class="add-cards"></div>
-        <div id="addOtherRow" class="add-other hidden">
-          <input id="addName" type="text" autocomplete="off" placeholder="Item name" />
-          <select id="addCategory"></select>
-          <button id="addOtherSubmit" class="primary-btn" type="button">Add</button>
-        </div>
-        <button id="addCancel" class="ghost-btn" type="button">Cancel</button>
-      </div>
-    </div>
-
-    <!-- Spending breakdown modal -->
-    <div id="breakdownModal" class="modal hidden">
-      <div class="modal-card">
-        <h3>Spending breakdown</h3>
-        <p class="modal-sub">Your current cart by category — tap a row for details.</p>
-        <div id="breakdownTotal" class="bd-total"></div>
-        <ul id="breakdownList" class="bd-list"></ul>
-        <button id="closeBreakdownBtn" class="ghost-btn" type="button">Close</button>
-      </div>
-    </div>
-
-    <!-- Saved trips modal -->
-    <div id="tripsModal" class="modal hidden">
-      <div class="modal-card">
-        <h3>Saved trips</h3>
-        <p class="modal-sub">Your completed shopping trips, saved on this device.</p>
-        <ul id="tripsList" class="trips-list"></ul>
-        <button id="exportTripsBtn" class="secondary-btn export-btn" type="button">
-          ⬇ Export all (JSON)
+        <div class="totals-grand"><span class="lbl">Total</span><span class="amt" id="total">$0.00</span></div>
+        <button id="finishTripBtn" class="btn btn-primary btn-lg btn-block" type="button">
+          <svg class="ico" data-ic="i-check" viewBox="0 0 24 24"></svg>Finish &amp; save trip
         </button>
-        <button id="closeTripsBtn" class="ghost-btn" type="button">Close</button>
-      </div>
+      </footer>
     </div>
 
-    <!-- Confirm-before-add dialog -->
-    <div id="confirmModal" class="modal hidden">
-      <div class="modal-card confirm-card">
-        <h3>Add this item?</h3>
-        <div id="confirmBody" class="confirm-body"></div>
-        <div class="confirm-actions">
-          <button id="confirmNo" class="ghost-btn" type="button">No, not this</button>
-          <button id="confirmYes" class="primary-btn" type="button">Add to cart</button>
+    <!-- Store picker sheet -->
+    <div id="storeModal" class="sheet-overlay hidden">
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="sheet-head"><h3>Choose a store</h3><button id="closeStoreBtn" class="iconbtn" type="button" aria-label="Close"><svg class="ico" data-ic="i-close" viewBox="0 0 24 24"></svg></button></div>
+        <div class="sheet-body">
+          <form id="storeForm" class="field-row" style="margin-bottom:14px">
+            <input id="zipInput" class="input input-mono" inputmode="numeric" maxlength="5" placeholder="ZIP code" aria-label="ZIP code" />
+            <button class="btn btn-secondary" type="submit"><svg class="ico" data-ic="i-search" viewBox="0 0 24 24"></svg>Search</button>
+          </form>
+          <ul id="storeResults" class="store-results"></ul>
         </div>
       </div>
     </div>
 
-    <!-- Debug panel (shown only with ?debug=1) -->
+    <!-- Confirm item sheet -->
+    <div id="confirmModal" class="sheet-overlay hidden">
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="sheet-head"><h3>Is this your item?</h3></div>
+        <div class="sheet-body"><div id="confirmBody" class="confirm-hero"></div></div>
+        <div class="sheet-foot">
+          <button id="confirmNo" class="btn btn-secondary btn-lg" type="button" style="flex:1">Not this</button>
+          <button id="confirmYes" class="btn btn-primary btn-lg" type="button" style="flex:1.6"><svg class="ico" data-ic="i-plus" viewBox="0 0 24 24"></svg>Add to cart</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick add sheet -->
+    <div id="addModal" class="sheet-overlay hidden">
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="sheet-head"><h3>Quick add</h3><button id="addCancel" class="iconbtn" type="button" aria-label="Close"><svg class="ico" data-ic="i-close" viewBox="0 0 24 24"></svg></button></div>
+        <div class="sheet-body">
+          <p id="addHint" class="sheet-hint"></p>
+          <div class="qa-controls">
+            <div>
+              <label class="field-label">Price</label>
+              <div class="qa-price"><span class="qa-cur">$</span><input id="addPrice" class="input" inputmode="decimal" placeholder="0.00" /></div>
+            </div>
+            <div>
+              <label class="field-label">Qty</label>
+              <input id="addQty" class="input" inputmode="numeric" value="1" />
+            </div>
+            <div class="qa-taxrow">
+              <span class="switch-label">Taxable item</span>
+              <label class="switch"><input id="addTaxable" type="checkbox" /><span class="track"></span></label>
+            </div>
+          </div>
+          <div id="addCards" class="qa-grid"></div>
+          <div id="addOtherRow" class="qa-other-form">
+            <div><label class="field-label">Item name</label><input id="addName" class="input" autocomplete="off" placeholder="e.g. Bulk almonds" /></div>
+            <div><label class="field-label">Category</label><select id="addCategory" class="select"></select></div>
+            <button id="addOtherSubmit" class="btn btn-primary btn-block btn-lg" type="button"><svg class="ico" data-ic="i-plus" viewBox="0 0 24 24"></svg>Add to cart</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Spending breakdown sheet -->
+    <div id="breakdownModal" class="sheet-overlay hidden">
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="sheet-head"><h3>Spending breakdown</h3><button id="closeBreakdownBtn" class="iconbtn" type="button" aria-label="Close"><svg class="ico" data-ic="i-close" viewBox="0 0 24 24"></svg></button></div>
+        <div class="sheet-body">
+          <div class="bd-total"><div class="lbl">Cart total</div><div class="amt" id="breakdownTotal"></div></div>
+          <div id="breakdownList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Saved trips sheet -->
+    <div id="tripsModal" class="sheet-overlay hidden">
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="sheet-head"><h3>Saved trips</h3><button id="closeTripsBtn" class="iconbtn" type="button" aria-label="Close"><svg class="ico" data-ic="i-close" viewBox="0 0 24 24"></svg></button></div>
+        <div class="sheet-body"><div id="tripsList"></div></div>
+        <div class="sheet-foot"><button id="exportTripsBtn" class="btn btn-secondary btn-block btn-lg" type="button"><svg class="ico" data-ic="i-export" viewBox="0 0 24 24"></svg>Export trips</button></div>
+      </div>
+    </div>
+
+    <!-- Debug panel -->
     <div id="debugPanel" class="debug-panel hidden">
       <div class="debug-head">
         <strong>Debug log</strong>
-        <span>
-          <button id="debugCopy" type="button">Copy</button>
-          <button id="debugClear" type="button">Clear</button>
-        </span>
+        <span><button id="debugCopy" type="button">Copy</button><button id="debugClear" type="button">Clear</button></span>
       </div>
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=14"></script>
-    <script src="app.js?v=14"></script>
+    <script src="config.js?v=15"></script>
+    <script src="app.js?v=15"></script>
   </body>
 </html>
