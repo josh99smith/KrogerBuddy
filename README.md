@@ -69,6 +69,59 @@ like an app.
 2. Tap **Scan a barcode** and point the camera at a UPC, or type it in.
 3. Adjust quantities, set your tax rate, and the **Total** updates live.
 
+## Deploying for public access (GitHub Pages + Cloudflare Worker)
+
+GitHub Pages serves only static files, so the app is split: the front end runs
+on Pages, and the Kroger proxy (which holds the secret) runs on a free
+Cloudflare Worker. The browser calls the Worker cross-origin; the Worker adds
+CORS headers and talks to Kroger.
+
+### 1. Deploy the Worker
+
+```bash
+cd worker
+npm install
+npx wrangler login           # one-time, opens a browser
+npx wrangler deploy          # prints your Worker URL
+```
+
+Keep the credentials out of the repo by setting them as secrets (they override
+the in-code fallbacks):
+
+```bash
+npx wrangler secret put KROGER_CLIENT_SECRET
+npx wrangler secret put KROGER_CLIENT_ID
+```
+
+Optionally lock the Worker to your Pages origin by uncommenting `ALLOW_ORIGIN`
+in `worker/wrangler.toml`.
+
+### 2. Point the front end at the Worker
+
+Edit `public/config.js` and set the URL `wrangler deploy` printed:
+
+```js
+window.KROGERBUDDY_CONFIG = {
+  apiBase: 'https://krogerbuddy-api.YOUR-SUBDOMAIN.workers.dev',
+};
+```
+
+(Or skip editing and just open the site once with `?api=<worker-url>` — it's
+remembered in the browser.)
+
+### 3. Turn on GitHub Pages
+
+In the repo: **Settings → Pages → Build and deployment → Source = "GitHub
+Actions"**. The included workflow (`.github/workflows/deploy-pages.yml`)
+publishes `public/` on every push. Your app will be live at
+`https://<your-username>.github.io/<repo>/` — open it on your phone and "Add to
+Home Screen".
+
+> **Heads-up on a public, shared deployment:** every visitor's lookups use your
+> one set of Kroger credentials and count against your API quota. That's fine
+> for personal/family use; if you ever expect heavier traffic, set the
+> `ALLOW_ORIGIN` lock and keep an eye on your Kroger developer dashboard.
+
 ## Notes & limits
 
 - **Network access:** the server must be able to reach `api.kroger.com`. In
