@@ -2,6 +2,8 @@
   "name": "kroger-buddy",
   "version": "1.0.0",
   "description": "KrogerBuddy — a mobile companion shopping app that scans UPC barcodes against the Kroger API and tracks your running cart total with tax.",
+  "author": "Joshua A. Smith",
+  "license": "UNLICENSED",
   "type": "module",
   "main": "server.js",
   "scripts": {

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Cloudflare Worker that proxies the Kroger API for KrogerBuddy.",
+  "author": "Joshua A. Smith",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
