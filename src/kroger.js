@@ -179,41 +179,30 @@ function productIdCandidates(upc) {
   return [...ids].filter((s) => s.length === 13);
 }
 
-// Exact lookup by productId — the correct way to find a specific item, unlike
-// filter.term (a fuzzy keyword search).
+// Exact lookup by productId via Kroger's single-product endpoint
+// (GET /v1/products/{id}). One clean request per candidate; a missing ID
+// returns 404, which we skip quietly.
 async function lookupByProductId(upc, locationId) {
-  const ids = productIdCandidates(upc);
-  if (!ids.length) return null;
-  const params = new URLSearchParams({ 'filter.productId': ids.join(','), 'filter.limit': '50' });
-  if (locationId) params.set('filter.locationId', locationId);
-  const data = await authedGet(`/products?${params}`);
-  const items = data.data || [];
-  return items.find((p) => upcMatches(p.upc, upc)) || items[0] || null;
-}
-
-// Last-resort fuzzy search, limited to a couple of terms to keep request
-// volume (and Kroger-side load) low.
-async function searchExact(upc, locationId) {
-  const stripped = normUpc(upc);
-  const noCheck = stripped.length > 6 ? stripped.slice(0, -1) : stripped;
-  const terms = [...new Set([stripped, noCheck])].filter((s) => s.length >= 5);
-  for (const term of terms) {
-    const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '30' });
-    if (locationId) params.set('filter.locationId', locationId);
-    const data = await authedGet(`/products?${params}`);
-    const match = (data.data || []).find((p) => upcMatches(p.upc, upc));
-    if (match) return match;
+  for (const id of productIdCandidates(upc)) {
+    const qs = locationId ? `?filter.locationId=${encodeURIComponent(locationId)}` : '';
+    try {
+      const data = await authedGet(`/products/${id}${qs}`);
+      const p = Array.isArray(data.data) ? data.data[0] : data.data;
+      if (p) return p;
+    } catch (err) {
+      if (err && err.status === 404) continue;
+      throw err;
+    }
   }
   return null;
 }
 
-// Look up a product by UPC. Exact productId lookup first (1 request); only on a
-// miss try a store-independent productId lookup and a tiny term search.
+// Look up a product by UPC. Exact productId lookups only (at most 2 clean
+// requests, 404s skipped) — no fuzzy term search.
 export async function findProductByUpc(upc, locationId) {
   const match =
     (await lookupByProductId(upc, locationId)) ||
-    (locationId && (await lookupByProductId(upc, ''))) ||
-    (await searchExact(upc, locationId));
+    (locationId && (await lookupByProductId(upc, '')));
   return match ? normalizeProduct(match) : null;
 }
 

@@ -209,19 +209,22 @@ function productIdCandidates(upc) {
   return [...ids].filter((s) => s.length === 13);
 }
 
-// Exact lookup by productId (the correct way to find a specific item — unlike
-// filter.term, which is a fuzzy keyword search).
+// Exact lookup by productId using Kroger's single-product endpoint
+// (GET /v1/products/{id}). One clean request per candidate ID; a non-existent
+// ID returns 404, which we skip quietly (no retry, no error).
 async function lookupByProductId(upc, locationId, env) {
-  const ids = productIdCandidates(upc);
-  if (!ids.length) return null;
-  const params = new URLSearchParams({
-    'filter.productId': ids.join(','),
-    'filter.limit': '50',
-  });
-  if (locationId) params.set('filter.locationId', locationId);
-  const data = await authedGet(`/products?${params}`, env);
-  const items = data.data || [];
-  return items.find((p) => upcMatches(p.upc, upc)) || items[0] || null;
+  for (const id of productIdCandidates(upc)) {
+    const qs = locationId ? `?filter.locationId=${encodeURIComponent(locationId)}` : '';
+    try {
+      const data = await authedGet(`/products/${id}${qs}`, env);
+      const p = Array.isArray(data.data) ? data.data[0] : data.data;
+      if (p) return p;
+    } catch (err) {
+      if (err && err.status === 404) continue; // ID doesn't exist — try next
+      throw err; // genuine error (5xx/etc.) bubbles up
+    }
+  }
+  return null;
 }
 
 // Last-resort fuzzy search by term, kept only as a fallback. Limited to a
@@ -246,13 +249,12 @@ async function handleProduct(upc, searchParams, env) {
   }
   const locationId = (searchParams.get('locationId') || '').trim();
 
-  // Exact productId lookup first (the reliable path: 1 request). Only if that
-  // misses do we try a store-independent productId lookup and a tiny term
-  // search — keeping total requests low to avoid hammering Kroger.
-  let match =
+  // Exact productId lookup only — at most 2 clean requests, with 404s skipped.
+  // (The old fuzzy term search returned wrong items and ballooned request
+  // volume, so it's no longer used on the scan path.)
+  const match =
     (await lookupByProductId(upc, locationId, env)) ||
-    (locationId && (await lookupByProductId(upc, '', env))) ||
-    (await searchExact(upc, locationId, env));
+    (locationId && (await lookupByProductId(upc, '', env)));
 
   if (!match) {
     return json(
@@ -266,48 +268,31 @@ async function handleProduct(upc, searchParams, env) {
   return json({ product: normalizeProduct(match) }, 200, env);
 }
 
-// Diagnostic: show exactly what Kroger returns for each candidate UPC form.
-// Safe to expose (no secrets). Visit /api/debug/<upc>[?locationId=...].
+// Diagnostic: probe each candidate productId via the single-product endpoint
+// and report status/result. Safe to expose (no secrets). Light on requests.
+// Visit /api/debug/<upc>[?locationId=...].
 async function handleDebug(upc, searchParams, env) {
   const locationId = (searchParams.get('locationId') || '').trim();
-
-  // The exact productId lookup (the real fix).
-  const ids = productIdCandidates(upc);
-  let productIdLookup = { ids };
-  try {
-    const params = new URLSearchParams({ 'filter.productId': ids.join(','), 'filter.limit': '50' });
-    if (locationId) params.set('filter.locationId', locationId);
-    const data = await authedGet(`/products?${params}`, env);
-    const items = data.data || [];
-    productIdLookup.count = items.length;
-    productIdLookup.items = items.slice(0, 8).map((p) => ({
-      upc: p.upc,
-      productId: p.productId,
-      description: p.description,
-      matches: upcMatches(p.upc, upc),
-    }));
-  } catch (err) {
-    productIdLookup.error = err.message;
-  }
-
-  // The fuzzy term search (fallback) for comparison.
-  const results = [];
-  for (const term of upcCandidates(upc)) {
-    const params = new URLSearchParams({ 'filter.term': term, 'filter.limit': '20' });
-    if (locationId) params.set('filter.locationId', locationId);
+  const probes = [];
+  for (const id of productIdCandidates(upc)) {
+    const qs = locationId ? `?filter.locationId=${encodeURIComponent(locationId)}` : '';
+    const path = `/products/${id}${qs}`;
     try {
-      const data = await authedGet(`/products?${params}`, env);
-      const items = data.data || [];
-      results.push({
-        term,
-        count: items.length,
-        sample: items.slice(0, 5).map((p) => ({ upc: p.upc, description: p.description })),
+      const data = await authedGet(path, env);
+      const p = Array.isArray(data.data) ? data.data[0] : data.data;
+      probes.push({
+        productId: id,
+        path,
+        found: !!p,
+        upc: p ? p.upc : null,
+        description: p ? p.description : null,
+        price: p && p.items && p.items[0] ? p.items[0].price : null,
       });
     } catch (err) {
-      results.push({ term, error: err.message });
+      probes.push({ productId: id, path, error: `${err.status || ''} ${err.message}`.trim() });
     }
   }
-  return json({ scanned: upc, locationId: locationId || null, productIdLookup, termResults: results }, 200, env);
+  return json({ scanned: upc, locationId: locationId || null, probes }, 200, env);
 }
 
 export default {
