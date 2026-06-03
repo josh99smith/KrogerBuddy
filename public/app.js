@@ -361,8 +361,21 @@ function closeBreakdownModal() {
 // catalog, so we add them by hand.
 function isStoreWeighted(code) {
   if (code.length === 12) return code[0] === '2';
-  if (code.length === 13) return code.startsWith('02');
+  if (code.length === 13) return code.startsWith('02') || code[0] === '2';
   return false;
+}
+
+// Kroger weight/price-embedded barcodes encode the price (in cents) as the 4
+// digits just before the final check digit, e.g.
+//   2 12433 0 [3923] 0  -> $39.23   (beef tri-tip)
+//   ...        [0662] 2 -> $6.62    (chicken)
+// Returns the encoded price in dollars, or null if it can't be read.
+function extractStorePrice(code) {
+  const d = (code || '').replace(/\D/g, '');
+  if (!isStoreWeighted(d) || (d.length !== 12 && d.length !== 13)) return null;
+  const cents = parseInt(d.slice(d.length - 5, d.length - 1), 10);
+  if (!Number.isFinite(cents) || cents <= 0 || cents >= 100000) return null;
+  return cents / 100;
 }
 
 function populateAddCategory() {
@@ -379,7 +392,7 @@ function populateAddCategory() {
   els.addCategory.appendChild(other);
 }
 
-function openQuickAdd({ deptKey = '', storeWeighted = false } = {}) {
+function openQuickAdd({ deptKey = '', storeWeighted = false, price = null } = {}) {
   addModalOpen = true;
   if (scanner) {
     try {
@@ -389,8 +402,11 @@ function openQuickAdd({ deptKey = '', storeWeighted = false } = {}) {
   els.addForm.reset();
   els.addQty.value = '1';
   if (deptKey) els.addCategory.value = deptKey;
+  if (price != null) els.addPrice.value = price.toFixed(2);
   els.addHint.textContent = storeWeighted
-    ? 'Store-weighed item (not in Kroger’s catalog). Enter its name and the price from the sticker.'
+    ? price != null
+      ? `Read $${price.toFixed(2)} from the barcode (the regular/total price). Check it against what you'll pay — card or markdown prices can differ — then add.`
+      : 'Store-weighed item (not in Kroger’s catalog). Enter its name and the price from the sticker.'
     : 'Add meat, deli, produce or anything that won’t scan. The price is on the item’s sticker.';
   els.addModal.classList.remove('hidden');
   setTimeout(() => els.addName.focus(), 50);
@@ -947,7 +963,9 @@ function onScanSuccess(decodedText) {
   // to manual entry instead of a guaranteed-failed lookup.
   if (isStoreWeighted(code)) {
     beep();
-    openQuickAdd({ deptKey: 'meat', storeWeighted: true });
+    const price = extractStorePrice(code);
+    if (DEBUG) debugLog(`store-weighted ${code} -> price ${price != null ? '$' + price.toFixed(2) : 'n/a'}`);
+    openQuickAdd({ deptKey: 'meat', storeWeighted: true, price });
     return;
   }
   lookupUpc(code);
