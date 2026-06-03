@@ -50,7 +50,7 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch (_) {}
-  return { cart: [], store: null, taxRate: 0 };
+  return { cart: [], store: null, taxRate: 0, budget: null };
 }
 function saveState() {
   try {
@@ -94,6 +94,12 @@ const els = {
   taxRate: $('taxRate'),
   taxAmount: $('taxAmount'),
   total: $('total'),
+  budgetWrap: $('budgetWrap'),
+  budgetModal: $('budgetModal'),
+  budgetInput: $('budgetInput'),
+  budgetSave: $('budgetSave'),
+  budgetRemove: $('budgetRemove'),
+  budgetClose: $('budgetClose'),
   storeBtn: $('storeBtn'),
   storeLabel: $('storeLabel'),
   storeModal: $('storeModal'),
@@ -243,6 +249,93 @@ function render() {
   els.taxAmount.textContent = money(tax);
   els.total.textContent = money(total);
   els.finishTripBtn.disabled = state.cart.length === 0;
+
+  renderBudget(total);
+}
+
+// ---- Budget ----------------------------------------------------------------
+const BUDGET_WARN_PCT = 90; // warn once spending reaches this share of budget
+const LEVEL_ORDER = { none: 0, ok: 1, warn: 2, over: 3 };
+let lastBudgetOrder = null; // null until first render establishes a baseline
+
+function budgetInfo(total) {
+  const budget = Number(state.budget) || 0;
+  if (!budget) return { budget: 0, spent: total, level: 'none' };
+  const pct = (total / budget) * 100;
+  const level = pct >= 100 ? 'over' : pct >= BUDGET_WARN_PCT ? 'warn' : 'ok';
+  return { budget, spent: total, pct, level, remaining: budget - total };
+}
+
+function renderBudget(total) {
+  const info = budgetInfo(total);
+  if (info.level === 'none') {
+    els.budgetWrap.className = 'budget-wrap';
+    els.budgetWrap.innerHTML = `<button id="budgetSetBtn" class="btn-budget-set" type="button">${ic('i-tag', 16)} Set a trip budget</button>`;
+  } else {
+    const barPct = Math.min(100, Math.round(info.pct));
+    const right =
+      info.level === 'over'
+        ? `Over by ${money(info.spent - info.budget)}`
+        : `${money(info.remaining)} left`;
+    els.budgetWrap.className = `budget-wrap budget ${info.level}`;
+    els.budgetWrap.innerHTML = `
+      <div class="budget-top"><span class="budget-lbl">Budget</span><span class="budget-state">${right}</span></div>
+      <div class="budget-bar"><i style="width:${barPct}%"></i></div>
+      <div class="budget-foot">${money(info.spent)} of ${money(info.budget)} · ${Math.round(info.pct)}%</div>
+    `;
+  }
+  hydrateIcons(els.budgetWrap);
+  maybeBudgetAlert(info);
+}
+
+function maybeBudgetAlert(info) {
+  const order = LEVEL_ORDER[info.level];
+  if (lastBudgetOrder === null) {
+    // First render — set a baseline so we don't alert on initial load.
+    lastBudgetOrder = order;
+    return;
+  }
+  if (order > lastBudgetOrder) {
+    if (info.level === 'over') {
+      setStatus(`Over budget by ${money(info.spent - info.budget)} (${money(info.spent)} of ${money(info.budget)}).`, 'error');
+      try { navigator.vibrate && navigator.vibrate([120, 60, 120]); } catch (_) {}
+    } else if (info.level === 'warn') {
+      setStatus(`Heads up — ${Math.round(info.pct)}% of your ${money(info.budget)} budget, ${money(info.remaining)} left.`, 'warn');
+      try { navigator.vibrate && navigator.vibrate(80); } catch (_) {}
+    }
+  }
+  lastBudgetOrder = order;
+}
+
+function openBudgetModal() {
+  els.budgetInput.value = state.budget ? Number(state.budget).toFixed(2) : '';
+  els.budgetRemove.classList.toggle('hidden', !state.budget);
+  els.budgetModal.classList.remove('hidden');
+  setTimeout(() => els.budgetInput.focus(), 50);
+}
+function closeBudgetModal() {
+  els.budgetModal.classList.add('hidden');
+}
+function saveBudget() {
+  const v = parseFloat(els.budgetInput.value);
+  if (isNaN(v) || v <= 0) {
+    els.budgetInput.focus();
+    return;
+  }
+  state.budget = Math.round(v * 100) / 100;
+  saveState();
+  // Allow an immediate alert if already at/over the new budget.
+  lastBudgetOrder = LEVEL_ORDER.ok;
+  closeBudgetModal();
+  render();
+  setStatus(`Trip budget set to ${money(state.budget)}.`, 'ok');
+}
+function removeBudget() {
+  state.budget = null;
+  lastBudgetOrder = null;
+  saveState();
+  closeBudgetModal();
+  render();
 }
 
 // Subtotal, tax (on the taxable portion), and grand total for the current cart.
@@ -560,6 +653,7 @@ function finishTrip() {
     savedAt: new Date().toISOString(),
     store: state.store ? { ...state.store } : null,
     taxRate: Number(state.taxRate) || 0,
+    budget: state.budget || null,
     subtotal,
     tax,
     total,
@@ -584,6 +678,8 @@ function finishTrip() {
 
   // Start a fresh cart for the next trip, but keep the store and tax rate.
   state.cart = [];
+  state.budget = null; // budgets are per-trip
+  lastBudgetOrder = null;
   saveState();
   render();
   updateTripBadge();
@@ -613,18 +709,25 @@ function renderTrips() {
     const itemsHtml = trip.items
       .map((it) => `<div class="trip-line"><span class="nm"><b>${escapeHtml(it.description)}</b> ×${it.qty}</span><span class="vl">${money(it.unitPrice * it.qty)}</span></div>`)
       .join('');
+    let budgetLine = '';
+    if (trip.budget) {
+      const over = trip.total > trip.budget;
+      const diff = Math.abs(trip.budget - trip.total);
+      budgetLine = `<div class="trip-line"><span class="nm">Budget ${money(trip.budget)}</span><span class="vl" style="color:var(--${over ? 'error' : 'success'})">${money(diff)} ${over ? 'over' : 'under'}</span></div>`;
+    }
     const wrap = document.createElement('div');
     wrap.className = 'trip';
     wrap.innerHTML = `
       <div class="trip-head">
         <span class="trip-cal"><span class="mo">${mo}</span><span class="dy">${dy}</span></span>
-        <div class="trip-main"><div class="trip-store">${escapeHtml(storeName)}</div><div class="trip-meta">${trip.itemCount} items · ${trip.taxRate}% tax</div></div>
+        <div class="trip-main"><div class="trip-store">${escapeHtml(storeName)}</div><div class="trip-meta">${trip.itemCount} items · ${trip.taxRate}% tax${trip.budget ? ` · ${money(trip.budget)} budget` : ''}</div></div>
         <span class="trip-total">${money(trip.total)}</span>
         <svg class="ico trip-chev" data-ic="i-chev-right" viewBox="0 0 24 24" style="width:18px;height:18px"></svg>
       </div>
       <div class="trip-body">
         ${itemsHtml}
         <div class="trip-line"><span class="nm">Tax (${trip.taxRate}%)</span><span class="vl">${money(trip.tax)}</span></div>
+        ${budgetLine}
         <div class="trip-actions"><button type="button" class="linkbtn danger" data-del="${trip.id}">${ic('i-trash', 16)}Delete trip</button></div>
       </div>
     `;
@@ -895,10 +998,11 @@ function showCameraError(err) {
 // the last camera (on multi-lens phones the main rear cam is often last).
 function chooseCameraId(cameras) {
   if (!cameras || !cameras.length) return null;
-  const saved = localStorage.getItem(CAMERA_ID_KEY);
-  if (saved && cameras.some((c) => c.id === saved)) return saved;
-  const back = cameras.find((c) => /back|rear|environment/i.test(c.label || ''));
-  return (back || cameras[cameras.length - 1]).id;
+  // Pick the MAIN rear lens (the one that focuses up close) — avoid the
+  // ultrawide/telephoto/depth/macro lenses which often can't focus on barcodes.
+  const backs = cameras.filter((c) => /back|rear|environment/i.test(c.label || ''));
+  const main = backs.find((c) => !/ultra|wide|tele|depth|macro|mono/i.test(c.label || ''));
+  return (main || backs[0] || cameras[cameras.length - 1]).id;
 }
 
 function populateCameraSelect(cameras) {
@@ -984,8 +1088,14 @@ async function startScanner() {
   } catch (_) {}
   populateCameraSelect(cameras);
 
-  const camId = chooseCameraId(cameras);
-  const ok = await startWithCamera(camId || { facingMode: 'environment' });
+  // Always default to the rear-facing main camera (focuses up close). Using
+  // facingMode lets the OS pick the proper main lens rather than an ultrawide.
+  let ok = await startWithCamera({ facingMode: { ideal: 'environment' } });
+  if (!ok && scanner) {
+    // Fallback to a specific rear deviceId if the constraint was rejected.
+    const camId = chooseCameraId(cameras);
+    if (camId) ok = await startWithCamera(camId);
+  }
   if (!ok) return; // error already shown
 
   setStatus('Fill the box with the barcode. Use zoom if it won’t focus.', 'busy');
@@ -1142,6 +1252,20 @@ els.taxRate.addEventListener('input', () => {
   render();
 });
 
+els.budgetWrap.addEventListener('click', openBudgetModal);
+els.budgetSave.addEventListener('click', saveBudget);
+els.budgetRemove.addEventListener('click', removeBudget);
+els.budgetClose.addEventListener('click', closeBudgetModal);
+els.budgetInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    saveBudget();
+  }
+});
+els.budgetModal.addEventListener('click', (e) => {
+  if (e.target.classList.contains('scrim')) closeBudgetModal();
+});
+
 els.storeBtn.addEventListener('click', openStoreModal);
 els.closeStoreBtn.addEventListener('click', closeStoreModal);
 els.storeModal.addEventListener('click', (e) => {
@@ -1293,27 +1417,62 @@ if ('serviceWorker' in navigator) {
 // Show our own "Install" button when the browser says the app is installable.
 let deferredInstallPrompt = null;
 const installBtn = document.getElementById('installBtn');
+const installBanner = document.getElementById('installBanner');
+const bannerInstall = document.getElementById('bannerInstall');
+const bannerClose = document.getElementById('bannerClose');
+const ibSub = document.getElementById('ibSub');
+const DISMISS_KEY = 'krogerbuddy.installDismissed';
 const standalone =
   window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const bannerDismissed = () => {
+  try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch (_) { return false; }
+};
+
+function showInstallBanner() {
+  if (!installBanner || standalone || bannerDismissed()) return;
+  // Slide in shortly after load so it reads as a deliberate prompt.
+  setTimeout(() => installBanner.classList.add('show'), 600);
+}
+function hideInstallBanner(remember) {
+  if (installBanner) installBanner.classList.remove('show');
+  if (remember) {
+    try { localStorage.setItem(DISMISS_KEY, '1'); } catch (_) {}
+  }
+}
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
   if (installBtn && !standalone) installBtn.classList.remove('hidden');
+  showInstallBanner();
 });
 
-if (installBtn) {
-  installBtn.addEventListener('click', async () => {
-    if (!deferredInstallPrompt) return;
-    deferredInstallPrompt.prompt();
-    try {
-      await deferredInstallPrompt.userChoice;
-    } catch (_) {}
-    deferredInstallPrompt = null;
-    installBtn.classList.add('hidden');
-  });
+async function doInstall() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  try { await deferredInstallPrompt.userChoice; } catch (_) {}
+  deferredInstallPrompt = null;
+  hideInstallBanner(true);
+  if (installBtn) installBtn.classList.add('hidden');
 }
 
+if (installBtn) installBtn.addEventListener('click', doInstall);
+if (bannerInstall) bannerInstall.addEventListener('click', doInstall);
+if (bannerClose) bannerClose.addEventListener('click', () => hideInstallBanner(true));
+
 window.addEventListener('appinstalled', () => {
+  hideInstallBanner(true);
   if (installBtn) installBtn.classList.add('hidden');
 });
+
+// iOS Safari never fires beforeinstallprompt — show the banner with the
+// manual Add-to-Home-Screen hint instead of an Install button.
+(function iosInstallHint() {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS && !standalone && !bannerDismissed()) {
+    if (bannerInstall) bannerInstall.classList.add('hidden');
+    if (ibSub) ibSub.textContent = "Tap the Share button, then 'Add to Home Screen'.";
+    showInstallBanner();
+  }
+})();

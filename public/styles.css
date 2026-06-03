@@ -143,6 +143,7 @@ input[type="range"].zoom::-moz-range-thumb { width: 22px; height: 22px; border-r
 .status.ok { background: var(--success-tint); color: var(--success); }
 .status.error { background: var(--error-tint); color: var(--error); }
 .status.busy { background: var(--brand-tint); color: var(--brand-ink); }
+.status.warn { background: var(--warning-tint); color: var(--warning); }
 
 /* ----- Cart ----- */
 .cart-head { display: flex; align-items: center; gap: 9px; padding: 0 0 var(--sp-2); }
@@ -197,6 +198,22 @@ input[type="range"].zoom::-moz-range-thumb { width: 22px; height: 22px; border-r
 .totals-grand { display: flex; align-items: baseline; justify-content: space-between; padding: 8px 0 12px; border-top: 1px dashed var(--border); margin-top: 5px; }
 .totals-grand .lbl { font-size: var(--fs-md); font-weight: 750; }
 .totals-grand .amt { font-size: var(--fs-2xl); font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+/* budget */
+.budget-wrap:empty { display: none; }
+.btn-budget-set { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: transparent; border: 1.5px dashed var(--border-strong); color: var(--brand-ink); border-radius: var(--r-md); min-height: 42px; font-weight: 700; font-size: var(--fs-sm); font-family: var(--font); cursor: pointer; margin-bottom: 10px; }
+.btn-budget-set:active { background: var(--brand-tint-2); }
+.budget { padding: 9px 11px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--border); margin-bottom: 10px; cursor: pointer; }
+.budget-top { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-sm); font-weight: 750; }
+.budget-state { font-variant-numeric: tabular-nums; }
+.budget-bar { height: 8px; border-radius: var(--r-pill); background: var(--sunken); overflow: hidden; margin: 7px 0 5px; }
+.budget-bar i { display: block; height: 100%; background: var(--brand-solid); border-radius: var(--r-pill); transition: width .25s ease; }
+.budget-foot { font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.budget.warn .budget-bar i { background: var(--warning); }
+.budget.warn .budget-state { color: var(--warning); }
+.budget.over { border-color: var(--error); }
+.budget.over .budget-bar i { background: var(--error); }
+.budget.over .budget-state { color: var(--error); }
 
 /* ----- Bottom sheets ----- */
 .sheet-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
@@ -300,5 +317,21 @@ input[type="range"].zoom::-moz-range-thumb { width: 22px; height: 22px; border-r
 .debug-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; font-size: 13px; }
 .debug-head button { background: #1d2b45; color: #d6e2f0; border: 1px solid #2c3e5e; border-radius: 6px; padding: 5px 10px; margin-left: 6px; font-size: 12px; }
 .debug-out { margin: 0; padding: 0 12px 12px; overflow: auto; font-size: 11px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+/* ----- Install banner (slide-down) ----- */
+.install-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 70;
+  display: flex; align-items: center; gap: 12px;
+  padding: max(10px, env(safe-area-inset-top)) 14px 12px;
+  background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-md);
+  transform: translateY(-110%); transition: transform .28s ease;
+}
+.install-banner.show { transform: translateY(0); }
+.ib-icon img { width: 40px; height: 40px; border-radius: 10px; display: block; }
+.ib-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ib-text strong { font-size: var(--fs-base); font-weight: 750; }
+.ib-text span { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.3; }
+.install-banner .btn { min-height: 40px; padding: 0 16px; }
+.install-banner .iconbtn { width: 36px; height: 36px; flex: none; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
