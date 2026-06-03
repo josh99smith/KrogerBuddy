@@ -1,0 +1,16 @@
+{
+  "name": "KrogerBuddy",
+  "short_name": "KrogerBuddy",
+  "description": "Scan barcodes and track your Kroger cart total with tax while you shop.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0a4b9c",
+  "theme_color": "#0a4b9c",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' rx='36' fill='%230a4b9c'/%3E%3Ctext x='96' y='130' font-size='110' text-anchor='middle'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}

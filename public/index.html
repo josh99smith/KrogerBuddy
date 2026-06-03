@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0a4b9c" />
+    <title>KrogerBuddy</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="styles.css" />
+    <!-- Barcode scanning via device camera -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">🛒</span>
+        <h1>KrogerBuddy</h1>
+      </div>
+      <button id="storeBtn" class="store-chip" type="button">
+        <span id="storeLabel">Pick a store</span>
+      </button>
+    </header>
+
+    <main>
+      <!-- Scanner / entry -->
+      <section class="scan-card">
+        <div id="readerWrap" class="reader-wrap hidden">
+          <div id="reader"></div>
+          <button id="stopScanBtn" class="ghost-btn" type="button">Stop camera</button>
+        </div>
+
+        <div id="scanControls" class="scan-controls">
+          <button id="startScanBtn" class="primary-btn" type="button">
+            📷 Scan a barcode
+          </button>
+          <form id="manualForm" class="manual-form">
+            <input
+              id="manualUpc"
+              inputmode="numeric"
+              pattern="\d*"
+              placeholder="…or type a UPC"
+              aria-label="Enter UPC manually"
+            />
+            <button class="secondary-btn" type="submit">Add</button>
+          </form>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <!-- Cart -->
+      <section class="cart">
+        <div class="cart-head">
+          <h2>Cart <span id="itemCount" class="count">0</span></h2>
+          <button id="clearBtn" class="ghost-btn small" type="button">Clear</button>
+        </div>
+        <ul id="cartList" class="cart-list"></ul>
+        <p id="emptyHint" class="empty-hint">
+          Scan an item to start your list. Prices come from your selected store.
+        </p>
+      </section>
+    </main>
+
+    <!-- Sticky totals -->
+    <footer class="totals">
+      <div class="totals-rows">
+        <div class="row"><span>Subtotal</span><span id="subtotal">$0.00</span></div>
+        <div class="row tax-row">
+          <span>
+            Tax
+            <input
+              id="taxRate"
+              class="tax-input"
+              inputmode="decimal"
+              value="0"
+            />%
+          </span>
+          <span id="taxAmount">$0.00</span>
+        </div>
+        <div class="row grand"><span>Total</span><span id="total">$0.00</span></div>
+      </div>
+    </footer>
+
+    <!-- Store picker modal -->
+    <div id="storeModal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Choose your store</h3>
+        <p class="modal-sub">Prices are specific to each Kroger-family store.</p>
+        <form id="storeForm" class="store-form">
+          <input
+            id="zipInput"
+            inputmode="numeric"
+            maxlength="5"
+            placeholder="ZIP code"
+            aria-label="ZIP code"
+          />
+          <button class="primary-btn" type="submit">Search</button>
+        </form>
+        <ul id="storeResults" class="store-results"></ul>
+        <button id="closeStoreBtn" class="ghost-btn" type="button">Close</button>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
