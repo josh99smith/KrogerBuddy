@@ -137,11 +137,23 @@ async function handleProduct(upc, searchParams, env) {
 
   const data = await authedGet(`/products?${params}`, env);
   const items = data.data || [];
-  if (items.length === 0) {
-    return json({ error: `No Kroger product found for UPC ${upc}.` }, 404, env);
+  // Only trust an EXACT UPC match. Kroger's term search returns loosely-related
+  // products when there's no real match, so taking the first item would show a
+  // wrong product. Normalize leading zeros (UPC-A 12 vs Kroger's 13-digit form).
+  const norm = (u) => (u || '').replace(/^0+/, '');
+  const exact = items.find((p) => norm(p.upc) === norm(upc));
+  if (!exact) {
+    return json(
+      {
+        error: `Scanned ${upc}, but no exact product match was found${
+          locationId ? ' at this store' : ''
+        }. Try rescanning or enter the UPC manually.`,
+      },
+      404,
+      env
+    );
   }
-  const exact = items.find((p) => p.upc === upc || p.upc === upc.padStart(13, '0'));
-  return json({ product: normalizeProduct(exact || items[0]) }, 200, env);
+  return json({ product: normalizeProduct(exact) }, 200, env);
 }
 
 export default {

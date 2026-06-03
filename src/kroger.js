@@ -111,11 +111,13 @@ export async function findProductByUpc(upc, locationId) {
 
   const data = await authedGet(`/products?${params}`);
   const items = data.data || [];
-  if (items.length === 0) return null;
 
-  // Prefer an exact UPC match if present; otherwise take the first result.
-  const exact = items.find((p) => p.upc === upc || p.upc === upc.padStart(13, '0'));
-  return normalizeProduct(exact || items[0]);
+  // Only return an EXACT UPC match. Kroger's term search falls back to
+  // loosely-related products, so taking the first result would surface the
+  // wrong item. Normalize leading zeros (UPC-A 12 vs Kroger's 13-digit form).
+  const norm = (u) => (u || '').replace(/^0+/, '');
+  const exact = items.find((p) => norm(p.upc) === norm(upc));
+  return exact ? normalizeProduct(exact) : null;
 }
 
 function normalizeProduct(p) {
