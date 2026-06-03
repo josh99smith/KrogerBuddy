@@ -65,6 +65,10 @@ const els = {
   zipInput: $('zipInput'),
   storeResults: $('storeResults'),
   closeStoreBtn: $('closeStoreBtn'),
+  confirmModal: $('confirmModal'),
+  confirmBody: $('confirmBody'),
+  confirmYes: $('confirmYes'),
+  confirmNo: $('confirmNo'),
 };
 
 // ---- Helpers ---------------------------------------------------------------
@@ -230,14 +234,10 @@ async function lookupUpc(upc) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Lookup failed');
 
-    addProductToCart(data.product);
-    const p = data.product;
-    if (p.regularPrice == null && p.promoPrice == null && !state.store) {
-      setStatus(`Added "${p.description}". Pick a store to see prices.`, 'ok');
-    } else {
-      setStatus(`Added "${p.description}" — ${money(unitPrice(p))}`, 'ok');
-    }
     beep();
+    // Don't add anything yet — let the shopper confirm it's the right item.
+    showConfirm(data.product);
+    setStatus('');
   } catch (err) {
     setStatus(err.message, 'error');
   } finally {
@@ -260,35 +260,104 @@ function beep() {
   } catch (_) {}
 }
 
+// ---- Confirm-before-add ----------------------------------------------------
+let pendingProduct = null;
+let awaitingConfirm = false;
+
+function showConfirm(product) {
+  pendingProduct = product;
+  awaitingConfirm = true;
+  // Freeze the camera while the shopper decides.
+  if (scanner) {
+    try {
+      scanner.pause(true);
+    } catch (_) {}
+  }
+
+  const p = product;
+  const onSale = p.promoPrice != null && p.regularPrice != null;
+  const noPrice = p.regularPrice == null && p.promoPrice == null;
+  const unit = unitPrice(p);
+  const meta = [p.brand, p.size].filter(Boolean).join(' · ');
+  const priceText = noPrice
+    ? state.store
+      ? 'No price at your store'
+      : 'Pick a store to see price'
+    : onSale
+    ? `SALE ${money(unit)} (reg ${money(p.regularPrice)})`
+    : money(unit);
+
+  els.confirmBody.innerHTML = `
+    ${
+      p.imageUrl
+        ? `<img src="${p.imageUrl}" alt="" />`
+        : `<div class="noimg">🛒</div>`
+    }
+    <div class="confirm-info">
+      <div class="confirm-name">${escapeHtml(p.description)}</div>
+      ${meta ? `<div class="confirm-meta">${escapeHtml(meta)}</div>` : ''}
+      <div class="confirm-price">${priceText}</div>
+      <div class="confirm-upc">UPC ${escapeHtml(p.upc || '')}</div>
+    </div>
+  `;
+  els.confirmModal.classList.remove('hidden');
+}
+
+function closeConfirm(resumeScanning) {
+  els.confirmModal.classList.add('hidden');
+  awaitingConfirm = false;
+  pendingProduct = null;
+  recentReads = {};
+  if (resumeScanning && scanner) {
+    try {
+      scanner.resume();
+    } catch (_) {}
+  }
+}
+
 // ---- Barcode scanner -------------------------------------------------------
 let scanner = null;
 let lastScan = { code: null, at: 0 };
+// Tracks how many times each code has been read recently. We only trust a code
+// after it's decoded the same way twice, which filters out blurry misreads.
+let recentReads = {};
 
 async function startScanner() {
   els.readerWrap.classList.remove('hidden');
   els.scanControls.classList.add('hidden');
-  setStatus('Point the camera at a barcode…', 'busy');
+  setStatus('Hold steady ~6 in. from the barcode…', 'busy');
 
   scanner = new Html5Qrcode('reader');
+
+  // Ask for a high-res rear camera with continuous autofocus to reduce blur.
+  const cameraConstraints = {
+    facingMode: 'environment',
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    advanced: [{ focusMode: 'continuous' }],
+  };
+
   const config = {
-    fps: 10,
-    qrbox: { width: 250, height: 160 },
+    fps: 15,
+    // Wide, short scan window sized to the viewport — matches a barcode's shape.
+    qrbox: (vw) => {
+      const w = Math.min(Math.round(vw * 0.85), 340);
+      return { width: w, height: Math.round(w * 0.5) };
+    },
+    // Only retail barcode symbologies — dropping CODE_128 avoids false hits.
     formatsToSupport: [
       Html5QrcodeSupportedFormats.UPC_A,
       Html5QrcodeSupportedFormats.UPC_E,
       Html5QrcodeSupportedFormats.EAN_13,
       Html5QrcodeSupportedFormats.EAN_8,
-      Html5QrcodeSupportedFormats.CODE_128,
     ],
+    // Use the device's native, hardware-accelerated detector when present —
+    // it's noticeably faster and more accurate than the JS fallback.
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
   };
 
   try {
-    await scanner.start(
-      { facingMode: 'environment' },
-      config,
-      onScanSuccess,
-      () => {} // ignore per-frame decode failures
-    );
+    await scanner.start(cameraConstraints, config, onScanSuccess, () => {});
   } catch (err) {
     setStatus(
       'Could not open the camera. Allow camera access, or type the UPC manually.',
@@ -298,13 +367,40 @@ async function startScanner() {
   }
 }
 
+// Validate the GTIN check digit for standard 12/13/14-digit barcodes. This
+// rejects a large share of garbled reads before we ever hit the API. (Shorter
+// codes like UPC-E/EAN-8 use different schemes, so we pass those through and
+// rely on the double-read + confirm step instead.)
+function isValidGtin(code) {
+  if (!/^\d{6,14}$/.test(code)) return false;
+  if (![12, 13, 14].includes(code.length)) return true;
+  const digits = code.split('').map(Number);
+  const check = digits.pop();
+  const sum = digits
+    .reverse()
+    .reduce((acc, d, i) => acc + d * (i % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === check;
+}
+
 function onScanSuccess(decodedText) {
+  // Ignore frames while we're waiting on a lookup or the confirm dialog.
+  if (awaitingConfirm || lookupInFlight) return;
+
   const code = decodedText.replace(/\D/g, '');
-  if (!code) return;
-  // Debounce: ignore the same code within 2.5s so one scan = one add.
+  if (!code || !isValidGtin(code)) return;
+
   const now = Date.now();
-  if (code === lastScan.code && now - lastScan.at < 2500) return;
+  // Don't immediately re-fire on the item we just handled.
+  if (code === lastScan.code && now - lastScan.at < 3000) return;
+
+  // Require two matching reads within 1.5s before trusting the result.
+  const prev = recentReads[code];
+  const count = prev && now - prev.at < 1500 ? prev.count + 1 : 1;
+  recentReads[code] = { count, at: now };
+  if (count < 2) return;
+
   lastScan = { code, at: now };
+  recentReads = {};
   lookupUpc(code);
 }
 
@@ -412,6 +508,27 @@ els.storeForm.addEventListener('submit', (e) => {
     return;
   }
   searchStores(zip);
+});
+
+els.confirmYes.addEventListener('click', () => {
+  if (pendingProduct) {
+    const p = pendingProduct;
+    addProductToCart(p);
+    setStatus(`Added "${p.description}".`, 'ok');
+  }
+  closeConfirm(true);
+});
+els.confirmNo.addEventListener('click', () => {
+  // Let the same item be re-scanned right away after a rejection.
+  lastScan = { code: null, at: 0 };
+  setStatus('Skipped — scan again when ready.', '');
+  closeConfirm(true);
+});
+els.confirmModal.addEventListener('click', (e) => {
+  if (e.target === els.confirmModal) {
+    lastScan = { code: null, at: 0 };
+    closeConfirm(true);
+  }
 });
 
 // ---- Init ------------------------------------------------------------------

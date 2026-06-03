@@ -197,6 +197,33 @@ button { font-family: inherit; cursor: pointer; }
 .store-option .s-name { font-weight: 700; font-size: 14px; }
 .store-option .s-addr { color: var(--muted); font-size: 12px; margin-top: 2px; }
 
+/* Confirm-before-add dialog */
+.confirm-card { text-align: left; }
+.confirm-body {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 0 16px;
+}
+.confirm-body img,
+.confirm-body .noimg {
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #f0f3f8;
+  flex: 0 0 auto;
+}
+.confirm-body .noimg { display: flex; align-items: center; justify-content: center; font-size: 34px; }
+.confirm-info { min-width: 0; }
+.confirm-name { font-size: 16px; font-weight: 700; line-height: 1.3; }
+.confirm-meta { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.confirm-price { font-size: 18px; font-weight: 800; color: var(--green); margin-top: 6px; }
+.confirm-upc { font-size: 11px; color: var(--muted); margin-top: 6px; letter-spacing: 0.5px; }
+.confirm-actions { display: flex; gap: 10px; }
+.confirm-actions .ghost-btn { flex: 1; margin: 0; }
+.confirm-actions .primary-btn { flex: 1; }
+
 .hidden { display: none !important; }
 
 @media (min-width: 520px) {
