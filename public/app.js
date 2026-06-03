@@ -523,10 +523,12 @@ let currentCameraId = null;
 
 const scanConfig = {
   fps: 15,
-  // Wide, short scan window sized to the viewport — matches a barcode's shape.
+  // Wide, short scan window matching a barcode's shape — sized to fit the
+  // compact camera viewport without dominating the screen.
   qrbox: (vw) => {
-    const w = Math.min(Math.round(vw * 0.85), 340);
-    return { width: w, height: Math.round(w * 0.5) };
+    const w = Math.min(Math.round(vw * 0.8), 300);
+    const h = Math.min(Math.round(w * 0.42), 120);
+    return { width: w, height: h };
   },
   // Only retail barcode symbologies — dropping CODE_128 avoids false hits.
   formatsToSupport: [

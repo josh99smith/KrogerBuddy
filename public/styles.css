@@ -84,7 +84,21 @@ main { padding: 16px; max-width: 680px; margin: 0 auto; }
   margin-bottom: 16px;
 }
 .reader-wrap { margin-bottom: 12px; }
-#reader { border-radius: 12px; overflow: hidden; }
+#reader {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+/* Keep the camera feed compact — a wide, short window sized for a barcode,
+   instead of the full-height feed that pushes everything else down. */
+#reader video {
+  width: 100% !important;
+  height: clamp(150px, 26vh, 210px) !important;
+  object-fit: cover !important;
+  display: block;
+}
+/* html5-qrcode injects a placeholder image before the stream starts. */
+#reader img { display: none !important; }
 .cam-controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .cam-select {
   flex: 1 1 auto;
