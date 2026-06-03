@@ -284,6 +284,16 @@ input[type="range"].zoom::-moz-range-thumb { width: 22px; height: 22px; border-r
 .bd-bar i { display: block; height: 100%; border-radius: var(--r-pill); }
 .bd-chev { color: var(--text-3); transition: transform .15s; }
 .bd-cat.open .bd-chev { transform: rotate(90deg); }
+.bd-subtitle { text-align: center; font-size: var(--fs-xs); color: var(--text-3); margin: -10px 0 16px; }
+.bd-avg { margin-top: 7px; }
+.bd-avg-bar { height: 5px; border-radius: var(--r-pill); background: var(--sunken); overflow: hidden; }
+.bd-avg-bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--success); }
+.bd-avg-note { display: block; font-size: var(--fs-xs); color: var(--text-3); margin-top: 4px; font-weight: 600; }
+.bd-avg.warn .bd-avg-bar i { background: var(--warning); }
+.bd-avg.over .bd-avg-bar i { background: var(--error); }
+.bd-avg.over .bd-avg-note { color: var(--error); }
+.settings-toggle { width: 100%; margin-top: 18px; align-items: flex-start; gap: 12px; }
+.settings-toggle .switch-label { font-size: var(--fs-base); color: var(--text); font-weight: 600; }
 .bd-sub { display: none; padding: 10px 0 2px 22px; flex-direction: column; gap: 8px; }
 .bd-cat.open .bd-sub { display: flex; }
 .bd-sub-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-2); }

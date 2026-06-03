@@ -25,6 +25,10 @@ function resolveApiBase() {
 }
 
 const state = loadState();
+// Backfill settings for states saved before this feature existed.
+if (!state.settings) state.settings = { avgThreshold: 0, avgAlerts: true };
+if (typeof state.settings.avgThreshold !== 'number') state.settings.avgThreshold = 0;
+if (typeof state.settings.avgAlerts !== 'boolean') state.settings.avgAlerts = true;
 
 // ---- Debug panel -----------------------------------------------------------
 // Turn on by visiting the site with ?debug=1. Logs scans + raw API responses
@@ -50,7 +54,7 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch (_) {}
-  return { cart: [], store: null, taxRate: 0, budget: null };
+  return { cart: [], store: null, taxRate: 0, budget: null, settings: { avgThreshold: 0, avgAlerts: true } };
 }
 function saveState() {
   try {
@@ -124,8 +128,16 @@ const els = {
   breakdownBtn: $('breakdownBtn'),
   breakdownModal: $('breakdownModal'),
   breakdownTotal: $('breakdownTotal'),
+  breakdownSub: $('breakdownSub'),
   breakdownList: $('breakdownList'),
   closeBreakdownBtn: $('closeBreakdownBtn'),
+  settingsBtn: $('settingsBtn'),
+  settingsModal: $('settingsModal'),
+  settingsClose: $('settingsClose'),
+  settingsSave: $('settingsSave'),
+  avgThresholdInput: $('avgThresholdInput'),
+  avgAlertsToggle: $('avgAlertsToggle'),
+  qualifyNote: $('qualifyNote'),
   addItemBtn: $('addItemBtn'),
   addModal: $('addModal'),
   addCards: $('addCards'),
@@ -250,6 +262,7 @@ function render() {
   els.total.textContent = money(total);
   els.finishTripBtn.disabled = state.cart.length === 0;
 
+  checkAverageAlerts();
   renderBudget(total);
 }
 
@@ -432,7 +445,7 @@ function computeBreakdown() {
     const line = unitPrice(item) * item.qty;
     total += line;
     const c = categorize(item);
-    if (!map[c.key]) map[c.key] = { name: c.dept, icon: c.icon, total: 0, subs: {} };
+    if (!map[c.key]) map[c.key] = { key: c.key, name: c.dept, icon: c.icon, total: 0, subs: {} };
     map[c.key].total += line;
     map[c.key].subs[c.sub] = (map[c.key].subs[c.sub] || 0) + line;
   }
@@ -442,9 +455,32 @@ function computeBreakdown() {
 
 const BD_COLORS = ['#0a4b9c', '#1e8a52', '#e07a3c', '#7b5ea7', '#2aa7b5', '#b9780f', '#8a93a0'];
 
+// Average spend per category across qualifying past trips (total >= threshold).
+function categoryAverages() {
+  const threshold = Number(state.settings.avgThreshold) || 0;
+  const trips = loadTrips().filter((t) => (t.total || 0) >= threshold);
+  if (!trips.length) return { count: 0, byKey: {}, threshold };
+  const sums = {};
+  for (const t of trips) {
+    const per = {};
+    for (const it of t.items || []) {
+      const c = categorize(it);
+      per[c.key] = (per[c.key] || 0) + (it.unitPrice || 0) * (it.qty || 1);
+    }
+    for (const k in per) sums[k] = (sums[k] || 0) + per[k];
+  }
+  const byKey = {};
+  for (const k in sums) byKey[k] = sums[k] / trips.length;
+  return { count: trips.length, byKey, threshold };
+}
+
 function renderBreakdown() {
   const { total, depts } = computeBreakdown();
+  const avgs = categoryAverages();
   els.breakdownTotal.textContent = money(total);
+  els.breakdownSub.textContent = avgs.count
+    ? `Averages from ${avgs.count} trip${avgs.count > 1 ? 's' : ''} of ${money(avgs.threshold)}+`
+    : 'Finish a few trips to start tracking your category averages.';
   els.breakdownList.innerHTML = '';
   if (!depts.length || !total) {
     els.breakdownList.innerHTML = '<div class="empty-hint">Add items (with prices) to see the breakdown.</div>';
@@ -457,6 +493,25 @@ function renderBreakdown() {
     const subHtml = subs
       .map(([name, amt]) => `<div class="bd-sub-row"><span class="nm">${escapeHtml(name)}</span><span class="vl">${money(amt)}</span></div>`)
       .join('');
+
+    // "vs your average" indicator
+    let avgHtml = '';
+    const avg = avgs.byKey[d.key];
+    if (avg) {
+      const ratio = d.total / avg;
+      const apct = Math.round(ratio * 100);
+      const lvl = ratio > 1 ? 'over' : ratio >= 0.9 ? 'warn' : 'ok';
+      const note =
+        lvl === 'over'
+          ? `${money(d.total - avg)} over your ${money(avg)} average`
+          : `${apct}% of your ${money(avg)} average`;
+      avgHtml = `
+        <div class="bd-avg ${lvl}">
+          <div class="bd-avg-bar"><i style="width:${Math.min(100, apct)}%"></i></div>
+          <span class="bd-avg-note">${note}</span>
+        </div>`;
+    }
+
     const row = document.createElement('div');
     row.className = 'bd-cat';
     row.innerHTML = `
@@ -467,12 +522,74 @@ function renderBreakdown() {
         <svg class="ico bd-chev" data-ic="i-chev-right" viewBox="0 0 24 24" style="width:18px;height:18px"></svg>
       </div>
       <div class="bd-bar"><i style="width:${pct}%;background:${color}"></i></div>
+      ${avgHtml}
       <div class="bd-sub">${subHtml}</div>
     `;
     row.querySelector('.bd-cat-head').addEventListener('click', () => row.classList.toggle('open'));
     els.breakdownList.appendChild(row);
   });
   hydrateIcons(els.breakdownList);
+}
+
+// Alert (once per crossing) when a category in the cart exceeds its average.
+let overAvgAlerted = new Set();
+function checkAverageAlerts() {
+  if (!state.settings.avgAlerts) return;
+  const avgs = categoryAverages();
+  if (!avgs.count) return;
+  const { depts } = computeBreakdown();
+  const over = new Set();
+  for (const d of depts) {
+    const avg = avgs.byKey[d.key];
+    if (avg && d.total > avg) {
+      over.add(d.key);
+      if (!overAvgAlerted.has(d.key)) {
+        overAvgAlerted.add(d.key);
+        setStatus(`${d.name}: ${money(d.total)} — over your usual ${money(avg)} (by ${money(d.total - avg)}).`, 'warn');
+        try { navigator.vibrate && navigator.vibrate(70); } catch (_) {}
+      }
+    }
+  }
+  for (const k of [...overAvgAlerted]) if (!over.has(k)) overAvgAlerted.delete(k);
+}
+// Seed the "already over" set at load so we don't alert on a mid-trip refresh.
+function primeAverageAlerts() {
+  const avgs = categoryAverages();
+  if (!avgs.count) return;
+  for (const d of computeBreakdown().depts) {
+    const avg = avgs.byKey[d.key];
+    if (avg && d.total > avg) overAvgAlerted.add(d.key);
+  }
+}
+
+// ---- Settings --------------------------------------------------------------
+function openSettings() {
+  els.avgThresholdInput.value = state.settings.avgThreshold ? Number(state.settings.avgThreshold).toFixed(2) : '';
+  els.avgAlertsToggle.checked = !!state.settings.avgAlerts;
+  updateQualifyNote();
+  els.settingsModal.classList.remove('hidden');
+}
+function closeSettings() {
+  els.settingsModal.classList.add('hidden');
+}
+function updateQualifyNote() {
+  const th = parseFloat(els.avgThresholdInput.value) || 0;
+  const trips = loadTrips();
+  const n = trips.filter((t) => (t.total || 0) >= th).length;
+  els.qualifyNote.textContent = trips.length
+    ? `${n} of ${trips.length} saved trip${trips.length > 1 ? 's' : ''} count toward your averages (total ≥ ${money(th)}).`
+    : 'No saved trips yet — averages build as you finish trips.';
+}
+function saveSettings() {
+  const th = parseFloat(els.avgThresholdInput.value);
+  state.settings.avgThreshold = isNaN(th) || th < 0 ? 0 : Math.round(th * 100) / 100;
+  state.settings.avgAlerts = els.avgAlertsToggle.checked;
+  saveState();
+  overAvgAlerted = new Set();
+  primeAverageAlerts();
+  closeSettings();
+  render();
+  setStatus('Settings saved.', 'ok');
 }
 
 function openBreakdownModal() {
@@ -668,6 +785,7 @@ function finishTrip() {
       promoPrice: i.promoPrice,
       unitPrice: unitPrice(i),
       taxable: i.taxable,
+      deptKey: i.deptKey || null,
       categories: i.categories || [],
     })),
   };
@@ -1347,6 +1465,14 @@ els.breakdownModal.addEventListener('click', (e) => {
   if (e.target.classList.contains('scrim')) closeBreakdownModal();
 });
 
+els.settingsBtn.addEventListener('click', openSettings);
+els.settingsClose.addEventListener('click', closeSettings);
+els.settingsSave.addEventListener('click', saveSettings);
+els.avgThresholdInput.addEventListener('input', updateQualifyNote);
+els.settingsModal.addEventListener('click', (e) => {
+  if (e.target.classList.contains('scrim')) closeSettings();
+});
+
 els.addItemBtn.addEventListener('click', () => openQuickAdd({}));
 els.addOtherSubmit.addEventListener('click', submitOtherItem);
 els.addName.addEventListener('keydown', (e) => {
@@ -1383,6 +1509,7 @@ els.themeToggle.addEventListener('click', () => {
 buildIconMap();
 populateAddCategory();
 renderAddCards();
+primeAverageAlerts();
 render();
 hydrateIcons(document);
 updateTripBadge();
