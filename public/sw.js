@@ -1,7 +1,7 @@
 // KrogerBuddy service worker — required for PWA installability, gives an offline
 // fallback, and is network-first so installed users always get the latest when
 // online. Bump CACHE on each deploy so the worker updates and clients refresh.
-const CACHE = 'krogerbuddy-v4';
+const CACHE = 'krogerbuddy-v5';
 const CORE = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', (e) => {

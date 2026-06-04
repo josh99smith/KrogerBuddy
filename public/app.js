@@ -1085,6 +1085,37 @@ function loadTesseract() {
   return tesseractPromise;
 }
 
+// Decode the image (handles gallery photos/orientation/large files) and
+// downscale to a sane size for faster, more reliable OCR. Falls back to the raw
+// file if the browser can't decode it (e.g. HEIC on some platforms).
+function prepareImage(file) {
+  return new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const max = 2000;
+        const scale = Math.min(1, max / Math.max(img.width, img.height) || 1);
+        const cw = Math.max(1, Math.round(img.width * scale));
+        const ch = Math.max(1, Math.round(img.height * scale));
+        const c = document.createElement('canvas');
+        c.width = cw;
+        c.height = ch;
+        c.getContext('2d').drawImage(img, 0, 0, cw, ch);
+        URL.revokeObjectURL(url);
+        c.toBlob((blob) => resolve(blob || file), 'image/png');
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(file);
+      };
+      img.src = url;
+    } catch (_) {
+      resolve(file);
+    }
+  });
+}
+
 async function runReceiptOcr(file) {
   setStatus('Loading receipt scanner…', 'busy');
   let Tesseract;
@@ -1096,16 +1127,21 @@ async function runReceiptOcr(file) {
   }
   setStatus('Reading your receipt…', 'busy');
   try {
-    const { data } = await Tesseract.recognize(file, 'eng', {
+    const input = await prepareImage(file);
+    const { data } = await Tesseract.recognize(input, 'eng', {
       logger: (m) => {
         if (m.status === 'recognizing text') {
           setStatus(`Reading your receipt… ${Math.round(m.progress * 100)}%`, 'busy');
         }
       },
     });
-    const parsed = parseReceiptText(data && data.text ? data.text : '');
+    const text = data && data.text ? data.text : '';
+    const parsed = parseReceiptText(text);
+    if (DEBUG) {
+      debugLog(`receipt OCR: ${text.length} chars, ${parsed.items.length} items, store=${parsed.store || '?'}\n--- raw ---\n${text.slice(0, 1200)}`);
+    }
     if (!parsed.items.length) {
-      setStatus('Couldn’t read any items — add them manually below, or try a clearer photo.', 'warn');
+      setStatus('Couldn’t read any items — add them manually below, or try a clearer, flatter photo.', 'warn');
     } else {
       setStatus('', '');
     }
@@ -1124,8 +1160,30 @@ function parseReceiptText(text) {
     .filter(Boolean);
 
   const SKIP =
-    /\b(sub\s*total|total|tax|balance|change|cash|credit|debit|visa|master|amex|discover|tend|tender|payment|savings|saved|coupon|loyalty|points|fuel|reward|account|ref|auth|approval|member|cashier|register|store\s*#|thank|welcome|customer|qty|count|items?\s+sold)\b/i;
-  const PRICE_RE = /(-?\$?\d{1,4}\.\d{2})\s*[A-Z]?$/;
+    /\b(sub\s*total|total|tax|balance|change|cash|credit|debit|visa|master|amex|discover|tend|tender|payment|savings|saved|coupon|loyalty|points|fuel|reward|account|ref|auth|approval|member|cashier|register|store\s*#|thank|welcome|customer|qty|count|items?\s+sold|purchase|order|return|gas|pump)\b/i;
+  // Trailing money: optional $/S, dot or comma decimal, optional 1-2 letter flag.
+  const PRICE_RE = /(-?[\$S]?\d{1,4}[.,]\d{2})\s*[A-Za-z]{0,2}\s*$/;
+  const toAmount = (s) => parseFloat(String(s).replace(/[\$S]/, '').replace(',', '.'));
+
+  // --- Store guess (banner + city) ---
+  const BANNERS = /\b(kroger|ralphs|fred\s*meyer|king\s*soopers|fry'?s|smith'?s|dillons|qfc|harris\s*teeter|mariano'?s|pick\s*'?n\s*save|metro\s*market|baker'?s|gerbes|pay\s*less|owen'?s|jay\s*c|food\s*4\s*less|foods\s*co)\b/i;
+  const titleCase = (s) =>
+    s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+  let banner = null;
+  let city = null;
+  for (const line of lines.slice(0, 14)) {
+    if (!banner) {
+      const bm = line.match(BANNERS);
+      if (bm) banner = /qfc/i.test(bm[1]) ? 'QFC' : titleCase(bm[1].replace(/\s+/g, ' ').trim());
+    }
+    if (!city) {
+      const cm = line.match(/([A-Za-z][A-Za-z .'\-]{2,}),?\s+[A-Z]{2}\s+\d{5}/);
+      if (cm) city = titleCase(cm[1].trim());
+    }
+  }
+  let store = banner || null;
+  if (banner && city) store = `${banner} — ${city}`;
+  else if (!banner && city) store = city;
 
   const items = [];
   let subtotal = null;
@@ -1145,7 +1203,7 @@ function parseReceiptText(text) {
 
     const pm = line.match(PRICE_RE);
     if (!pm) continue;
-    const amount = parseFloat(pm[1].replace('$', ''));
+    const amount = toAmount(pm[1]);
     if (isNaN(amount)) continue;
 
     const lower = line.toLowerCase();
@@ -1156,15 +1214,15 @@ function parseReceiptText(text) {
     if (SKIP.test(line)) continue;
     if (amount <= 0 || amount > 999) continue;
 
-    let desc = line.replace(PRICE_RE, '').replace(/\s+[A-Z]$/, '').trim();
-    desc = desc.replace(/\s{2,}/g, ' ').replace(/^\d{6,}\s*/, '').replace(/^\d+\s+(?=[A-Za-z])/, '').trim();
+    let desc = line.replace(PRICE_RE, '').trim();
+    desc = desc.replace(/\s{2,}/g, ' ').replace(/^\d{6,}\s*/, '').replace(/^\d+\s+(?=[A-Za-z])/, '').replace(/[^A-Za-z0-9%&'./ +-]/g, '').trim();
     if (desc.length < 2 || !/[A-Za-z]/.test(desc)) continue;
 
-    const taxable = /\s[TF]$/i.test(line) ? /\sT$/i.test(line) : true;
+    const taxable = /\s[TF]\s*$/i.test(line) ? /\sT\s*$/i.test(line) : true;
     items.push({ description: desc, price: amount, qty: 1, taxable, deptKey: categorize({ description: desc }).key });
   }
 
-  return { items, subtotal, tax, total, date };
+  return { items, subtotal, tax, total, date, store };
 }
 
 function deptOptions(selectedKey) {
@@ -1177,7 +1235,7 @@ function deptOptions(selectedKey) {
 
 function openReceiptModal(parsed) {
   receiptDraft.items = (parsed.items || []).map((it) => ({ ...it }));
-  receiptDraft.store = state.store ? state.store.name : '';
+  receiptDraft.store = parsed.store || (state.store ? state.store.name : '');
   receiptDraft.date = parsed.date || new Date().toISOString();
   let rate = Number(state.taxRate) || 0;
   if (parsed.tax != null && parsed.subtotal && parsed.subtotal > 0) {
