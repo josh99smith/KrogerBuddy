@@ -1190,10 +1190,17 @@ function parseReceiptText(text) {
     .filter(Boolean);
 
   const SKIP =
-    /\b(sub\s*total|total|tax|balance|change|cash|credit|debit|visa|master|amex|discover|tend|tender|payment|savings|saved|coupon|loyalty|points|fuel|reward|account|ref|auth|approval|member|cashier|register|store\s*#|thank|welcome|customer|qty|count|items?\s+sold|purchase|order|return|gas|pump)\b/i;
+    /\b(sub\s*total|total|tax|balance|change|cash\b|cashback|credit|debit|visa|master|amex|discover|tend|tender|payment|purchase|savings|saved|coupon|loyalty|points|fuel|reward|account|ref|auth|approval|aid|verified|pin|member|customer|plus|cashier|register|store\s*#|thank|welcome|qty|count|items?\s+sold|sold|order|return|gas|pump|feedback)\b/i;
   // Trailing money: optional $/S, dot or comma decimal, optional 1-2 letter flag.
   const PRICE_RE = /(-?[\$S]?\d{1,4}[.,]\d{2})\s*[A-Za-z]{0,2}\s*$/;
   const toAmount = (s) => parseFloat(String(s).replace(/[\$S]/, '').replace(',', '.'));
+  const cleanDesc = (s) =>
+    s
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^\d{6,}\s*/, '')
+      .replace(/^\d+\s+(?=[A-Za-z])/, '')
+      .replace(/[^A-Za-z0-9%&'./ +-]/g, '')
+      .trim();
 
   // --- Store guess (banner + city) ---
   const BANNERS = /\b(kroger|ralphs|fred\s*meyer|king\s*soopers|fry'?s|smith'?s|dillons|qfc|harris\s*teeter|mariano'?s|pick\s*'?n\s*save|metro\s*market|baker'?s|gerbes|pay\s*less|owen'?s|jay\s*c|food\s*4\s*less|foods\s*co)\b/i;
@@ -1221,6 +1228,7 @@ function parseReceiptText(text) {
   let total = null;
   let date = null;
 
+  let pendingDesc = ''; // a text line whose price may be on the NEXT line
   for (const line of lines) {
     if (!date) {
       const dm = line.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/);
@@ -1232,21 +1240,25 @@ function parseReceiptText(text) {
     }
 
     const pm = line.match(PRICE_RE);
-    if (!pm) continue;
+    if (!pm) {
+      // No price: remember it as a possible description for a price-only line.
+      pendingDesc = !SKIP.test(line) && /[A-Za-z]{3,}/.test(line) ? cleanDesc(line) : '';
+      continue;
+    }
     const amount = toAmount(pm[1]);
-    if (isNaN(amount)) continue;
+    if (isNaN(amount)) { pendingDesc = ''; continue; }
 
     const lower = line.toLowerCase();
-    if (/\bsub\s*total\b/.test(lower)) { subtotal = amount; continue; }
-    if (/\btax\b/.test(lower)) { tax = (tax || 0) + amount; continue; }
-    if (/\b(grand\s*)?total\b/.test(lower) && !/sub/.test(lower)) { total = amount; continue; }
+    if (/\bsub\s*total\b/.test(lower)) { subtotal = amount; pendingDesc = ''; continue; }
+    if (/\btax\b/.test(lower)) { tax = (tax || 0) + amount; pendingDesc = ''; continue; }
+    if (/\b(grand\s*)?total\b/.test(lower) && !/sub/.test(lower)) { total = amount; pendingDesc = ''; continue; }
 
-    if (SKIP.test(line)) continue;
-    if (amount <= 0 || amount > 999) continue;
+    if (SKIP.test(line) || amount <= 0 || amount > 999) { pendingDesc = ''; continue; }
 
-    let desc = line.replace(PRICE_RE, '').trim();
-    desc = desc.replace(/\s{2,}/g, ' ').replace(/^\d{6,}\s*/, '').replace(/^\d+\s+(?=[A-Za-z])/, '').replace(/[^A-Za-z0-9%&'./ +-]/g, '').trim();
-    if (desc.length < 2 || !/[A-Za-z]/.test(desc)) continue;
+    let desc = cleanDesc(line.replace(PRICE_RE, ''));
+    if (!/[A-Za-z]{3,}/.test(desc)) desc = pendingDesc; // borrow split-line description
+    pendingDesc = '';
+    if (!/[A-Za-z]{3,}/.test(desc)) continue;
 
     const taxable = /\s[TF]\s*$/i.test(line) ? /\sT\s*$/i.test(line) : true;
     items.push({ description: desc, price: amount, qty: 1, taxable, deptKey: categorize({ description: desc }).key });
