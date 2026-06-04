@@ -1151,13 +1151,53 @@ async function getOcrWorker(Tesseract) {
   return ocrWorker;
 }
 
+// Try the cloud receipt parser (Taggun via the Worker). Returns a parsed object
+// in our shape, or null if it's not configured / unavailable so we can fall
+// back to on-device OCR.
+async function cloudParseReceipt(file) {
+  if (!API_BASE) return null;
+  setStatus('Reading your receipt…', 'busy');
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/receipt`, { method: 'POST', body: file });
+  } catch (_) {
+    return null; // network issue -> fall back
+  }
+  if (res.status === 501) return null; // not configured -> fall back
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  const r = data && data.receipt;
+  if (!r) return null;
+  if (DEBUG) debugLog(`cloud receipt: ${r.items ? r.items.length : 0} items, store=${r.store || '?'}, total=${r.total}`);
+  if (!r.items || !r.items.length) return { ...r, items: [] };
+  const items = r.items.map((it) => ({
+    description: it.description,
+    price: Number(it.price) || 0,
+    qty: it.qty || 1,
+    taxable: true,
+    deptKey: categorize({ description: it.description }).key,
+  }));
+  return { items, subtotal: r.subtotal, tax: r.tax, total: r.total, date: r.date, store: r.store };
+}
+
 async function runReceiptOcr(file) {
+  // 1) Cloud parser first (high accuracy) when available.
+  try {
+    const cloud = await cloudParseReceipt(file);
+    if (cloud && cloud.items.length) {
+      setStatus('', '');
+      openReceiptModal(cloud);
+      return;
+    }
+  } catch (_) {}
+
+  // 2) On-device fallback (Tesseract.js).
   setStatus('Loading receipt scanner…', 'busy');
   let Tesseract;
   try {
     Tesseract = await loadTesseract();
   } catch (_) {
-    setStatus('Couldn’t load the receipt scanner. Check your connection and try again.', 'error');
+    setStatus('Couldn’t read the receipt. Check your connection and try again.', 'error');
     return;
   }
   setStatus('Reading your receipt…', 'busy');

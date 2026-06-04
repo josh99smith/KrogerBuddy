@@ -23,7 +23,7 @@ let tokenCache = { accessToken: null, expiresAt: 0 };
 function corsHeaders(env) {
   return {
     'Access-Control-Allow-Origin': (env && env.ALLOW_ORIGIN) || '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
@@ -303,6 +303,57 @@ async function handleDebug(upc, searchParams, env) {
   return json({ scanned: upc, locationId: locationId || null, probes }, 200, env);
 }
 
+// Forward a receipt photo to Taggun and normalize the result into our shape.
+const tgNum = (x) => (x && typeof x.data === 'number' ? x.data : typeof x === 'number' ? x : null);
+
+function normalizeTaggun(d) {
+  const store = (d.merchantName && d.merchantName.data) || null;
+  const date = (d.date && d.date.data) || null;
+  const total = tgNum(d.totalAmount);
+  const tax = tgNum(d.taxAmount);
+  let items = [];
+  const pli = d.entities && d.entities.productLineItems;
+  if (Array.isArray(pli)) {
+    items = pli
+      .map((li) => {
+        const data = (li && li.data) || {};
+        const name = data.name && data.name.data;
+        const price = tgNum(data.totalPrice) != null ? tgNum(data.totalPrice) : tgNum(data.unitPrice);
+        const qty = tgNum(data.quantity) || 1;
+        return { description: String(name || '').trim(), price: Number(price) || 0, qty: Math.max(1, Math.round(Number(qty) || 1)) };
+      })
+      .filter((it) => it.description && it.price > 0);
+  }
+  const subtotal = total != null && tax != null ? Math.round((total - tax) * 100) / 100 : null;
+  return { store, date, total, tax, subtotal, items, text: (d.text && d.text.text) || '' };
+}
+
+async function handleReceipt(request, env) {
+  const key = env && env.TAGGUN_API_KEY;
+  if (!key) return json({ error: 'Receipt scanning is not configured on the server.' }, 501, env);
+
+  const blob = await request.blob();
+  if (!blob || !blob.size) return json({ error: 'No image received.' }, 400, env);
+
+  const fd = new FormData();
+  fd.append('file', blob, 'receipt.jpg');
+  fd.append('extractLineItems', 'true');
+  fd.append('refresh', 'false');
+  fd.append('incognito', 'false');
+
+  const res = await fetchRetry('https://api.taggun.io/api/receipt/v1/verbose/file', {
+    method: 'POST',
+    headers: { apikey: key, accept: 'application/json' },
+    body: fd,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new ApiError(res.status, `Receipt service error (${res.status}). ${t}`.slice(0, 180).trim());
+  }
+  const data = await res.json();
+  return json({ receipt: normalizeTaggun(data) }, 200, env);
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -314,6 +365,7 @@ export default {
 
     try {
       if (pathname === '/api/health') return json({ ok: true }, 200, env);
+      if (pathname === '/api/receipt' && request.method === 'POST') return await handleReceipt(request, env);
       if (pathname === '/api/locations') return await handleLocations(searchParams, env);
       if (pathname.startsWith('/api/debug/')) {
         const upc = decodeURIComponent(pathname.slice('/api/debug/'.length)).trim();

@@ -10,3 +10,7 @@ compatibility_date = "2024-09-23"
 # Credentials are REQUIRED as secrets (no in-code fallbacks):
 #   npx wrangler secret put KROGER_CLIENT_SECRET
 #   npx wrangler secret put KROGER_CLIENT_ID
+#
+# Optional: enables cloud receipt scanning (Taggun). Without it, the app falls
+# back to on-device OCR.
+#   npx wrangler secret put TAGGUN_API_KEY
