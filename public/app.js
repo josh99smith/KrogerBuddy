@@ -125,6 +125,20 @@ const els = {
   tripsList: $('tripsList'),
   closeTripsBtn: $('closeTripsBtn'),
   exportTripsBtn: $('exportTripsBtn'),
+  receiptFile: $('receiptFile'),
+  scanReceiptBtn: $('scanReceiptBtn'),
+  receiptModal: $('receiptModal'),
+  receiptClose: $('receiptClose'),
+  rcStore: $('rcStore'),
+  rcDate: $('rcDate'),
+  rcItems: $('rcItems'),
+  rcAddLine: $('rcAddLine'),
+  rcSubtotal: $('rcSubtotal'),
+  rcTaxRate: $('rcTaxRate'),
+  rcTaxAmount: $('rcTaxAmount'),
+  rcTotal: $('rcTotal'),
+  rcCancel: $('rcCancel'),
+  rcSave: $('rcSave'),
   breakdownBtn: $('breakdownBtn'),
   breakdownModal: $('breakdownModal'),
   breakdownTotal: $('breakdownTotal'),
@@ -966,7 +980,7 @@ function renderTrips() {
   els.tripCount.textContent = trips.length;
   els.exportTripsBtn.disabled = trips.length === 0;
   if (!trips.length) {
-    els.tripsList.innerHTML = '<div class="empty-hint">No saved trips yet. Tap “Finish &amp; save trip” after shopping.</div>';
+    els.tripsList.innerHTML = '<div class="empty-hint">No saved trips yet. Finish a trip after shopping, or scan a receipt below.</div>';
     return;
   }
   els.tripsList.innerHTML = '';
@@ -1045,6 +1059,244 @@ function openTripsModal() {
 }
 function closeTripsModal() {
   els.tripsModal.classList.add('hidden');
+}
+
+// ---- Receipt scanner -------------------------------------------------------
+// Photograph a receipt -> OCR on-device (Tesseract.js) -> review/edit -> save
+// as a past trip. Never touches state.cart.
+let receiptDraft = { items: [], store: '', date: null };
+let tesseractPromise = null;
+
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (tesseractPromise) return tesseractPromise;
+  tesseractPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.async = true;
+    s.onload = () => (window.Tesseract ? resolve(window.Tesseract) : reject(new Error('init')));
+    s.onerror = () => {
+      tesseractPromise = null;
+      reject(new Error('load'));
+    };
+    document.head.appendChild(s);
+  });
+  return tesseractPromise;
+}
+
+async function runReceiptOcr(file) {
+  setStatus('Loading receipt scanner…', 'busy');
+  let Tesseract;
+  try {
+    Tesseract = await loadTesseract();
+  } catch (_) {
+    setStatus('Couldn’t load the receipt scanner. Check your connection and try again.', 'error');
+    return;
+  }
+  setStatus('Reading your receipt…', 'busy');
+  try {
+    const { data } = await Tesseract.recognize(file, 'eng', {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          setStatus(`Reading your receipt… ${Math.round(m.progress * 100)}%`, 'busy');
+        }
+      },
+    });
+    const parsed = parseReceiptText(data && data.text ? data.text : '');
+    if (!parsed.items.length) {
+      setStatus('Couldn’t read any items — add them manually below, or try a clearer photo.', 'warn');
+    } else {
+      setStatus('', '');
+    }
+    openReceiptModal(parsed);
+  } catch (_) {
+    setStatus('Couldn’t read that photo. Try again with a flatter, well-lit shot.', 'error');
+  }
+}
+
+// Pure parser: extract items, totals, and date from OCR text. Imperfect by
+// design — the review step is the safety net.
+function parseReceiptText(text) {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const SKIP =
+    /\b(sub\s*total|total|tax|balance|change|cash|credit|debit|visa|master|amex|discover|tend|tender|payment|savings|saved|coupon|loyalty|points|fuel|reward|account|ref|auth|approval|member|cashier|register|store\s*#|thank|welcome|customer|qty|count|items?\s+sold)\b/i;
+  const PRICE_RE = /(-?\$?\d{1,4}\.\d{2})\s*[A-Z]?$/;
+
+  const items = [];
+  let subtotal = null;
+  let tax = null;
+  let total = null;
+  let date = null;
+
+  for (const line of lines) {
+    if (!date) {
+      const dm = line.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/);
+      if (dm) {
+        let yr = dm[3].length === 2 ? '20' + dm[3] : dm[3];
+        const d = new Date(Number(yr), Number(dm[1]) - 1, Number(dm[2]));
+        if (!isNaN(d) && d.getFullYear() >= 2000 && d.getFullYear() <= 2100) date = d.toISOString();
+      }
+    }
+
+    const pm = line.match(PRICE_RE);
+    if (!pm) continue;
+    const amount = parseFloat(pm[1].replace('$', ''));
+    if (isNaN(amount)) continue;
+
+    const lower = line.toLowerCase();
+    if (/\bsub\s*total\b/.test(lower)) { subtotal = amount; continue; }
+    if (/\btax\b/.test(lower)) { tax = (tax || 0) + amount; continue; }
+    if (/\b(grand\s*)?total\b/.test(lower) && !/sub/.test(lower)) { total = amount; continue; }
+
+    if (SKIP.test(line)) continue;
+    if (amount <= 0 || amount > 999) continue;
+
+    let desc = line.replace(PRICE_RE, '').replace(/\s+[A-Z]$/, '').trim();
+    desc = desc.replace(/\s{2,}/g, ' ').replace(/^\d{6,}\s*/, '').replace(/^\d+\s+(?=[A-Za-z])/, '').trim();
+    if (desc.length < 2 || !/[A-Za-z]/.test(desc)) continue;
+
+    const taxable = /\s[TF]$/i.test(line) ? /\sT$/i.test(line) : true;
+    items.push({ description: desc, price: amount, qty: 1, taxable, deptKey: categorize({ description: desc }).key });
+  }
+
+  return { items, subtotal, tax, total, date };
+}
+
+function deptOptions(selectedKey) {
+  const opts = DEPARTMENTS.map(
+    (d) => `<option value="${d.key}"${d.key === selectedKey ? ' selected' : ''}>${d.icon} ${escapeHtml(d.name)}</option>`
+  );
+  opts.push(`<option value="other"${selectedKey === 'other' || !selectedKey ? ' selected' : ''}>🛒 Other</option>`);
+  return opts.join('');
+}
+
+function openReceiptModal(parsed) {
+  receiptDraft.items = (parsed.items || []).map((it) => ({ ...it }));
+  receiptDraft.store = state.store ? state.store.name : '';
+  receiptDraft.date = parsed.date || new Date().toISOString();
+  let rate = Number(state.taxRate) || 0;
+  if (parsed.tax != null && parsed.subtotal && parsed.subtotal > 0) {
+    const derived = Math.round((parsed.tax / parsed.subtotal) * 100 * 100) / 100;
+    if (derived > 0 && derived <= 15) rate = derived;
+  }
+  els.rcStore.value = receiptDraft.store;
+  els.rcDate.value = receiptDraft.date.slice(0, 10);
+  els.rcTaxRate.value = rate;
+  renderReceiptItems();
+  els.receiptModal.classList.remove('hidden');
+}
+function closeReceiptModal() {
+  els.receiptModal.classList.add('hidden');
+}
+
+function renderReceiptItems() {
+  els.rcItems.innerHTML = receiptDraft.items
+    .map(
+      (it, i) => `
+      <div class="rc-row" data-i="${i}">
+        <input class="input rc-desc" data-i="${i}" value="${escapeHtml(it.description)}" placeholder="Item name" />
+        <div class="rc-row2">
+          <div class="qa-price"><span class="qa-cur">$</span><input class="input rc-price" data-i="${i}" inputmode="decimal" value="${(Number(it.price) || 0).toFixed(2)}" /></div>
+          <div class="stepper rc-qty" data-i="${i}">
+            <button type="button" data-act="dec" aria-label="Decrease">${ic('i-minus', 16)}</button>
+            <span class="qty">${it.qty}</span>
+            <button type="button" data-act="inc" aria-label="Increase">${ic('i-plus', 16)}</button>
+          </div>
+          <select class="select rc-cat" data-i="${i}">${deptOptions(it.deptKey)}</select>
+          <label class="switch rc-tax-toggle"><input type="checkbox" class="rc-tax" data-i="${i}" ${it.taxable ? 'checked' : ''} /><span class="track"></span></label>
+          <button type="button" class="remove-btn rc-del" data-i="${i}" aria-label="Remove">${ic('i-trash', 16)}</button>
+        </div>
+      </div>`
+    )
+    .join('');
+  if (!receiptDraft.items.length) {
+    els.rcItems.innerHTML = '<div class="empty-hint">No items yet — tap “Add a line” to enter them.</div>';
+  }
+  hydrateIcons(els.rcItems);
+  recomputeReceiptTotals();
+}
+
+function recomputeReceiptTotals() {
+  let subtotal = 0;
+  let taxable = 0;
+  for (const it of receiptDraft.items) {
+    const line = (Number(it.price) || 0) * (it.qty || 1);
+    subtotal += line;
+    if (it.taxable) taxable += line;
+  }
+  const rate = Number(els.rcTaxRate.value) || 0;
+  const tax = taxable * (rate / 100);
+  els.rcSubtotal.textContent = money(subtotal);
+  els.rcTaxAmount.textContent = money(tax);
+  els.rcTotal.textContent = money(subtotal + tax);
+  return { subtotal, tax, total: subtotal + tax };
+}
+
+function addReceiptLine() {
+  receiptDraft.items.push({ description: '', price: 0, qty: 1, taxable: true, deptKey: 'other' });
+  renderReceiptItems();
+  const inputs = els.rcItems.querySelectorAll('.rc-desc');
+  if (inputs.length) inputs[inputs.length - 1].focus();
+}
+
+function saveReceiptAsTrip() {
+  const items = receiptDraft.items.filter((it) => it.description.trim() && (Number(it.price) || 0) >= 0);
+  if (!items.length) {
+    setStatus('Add at least one item before saving.', 'warn');
+    return;
+  }
+  const { subtotal, tax, total } = recomputeReceiptTotals();
+  const rate = Number(els.rcTaxRate.value) || 0;
+  const itemCount = items.reduce((n, it) => n + (it.qty || 1), 0);
+
+  let savedAt = new Date().toISOString();
+  if (els.rcDate.value) {
+    const d = new Date(els.rcDate.value + 'T12:00:00');
+    if (!isNaN(d)) savedAt = d.toISOString();
+  }
+
+  const storeName = els.rcStore.value.trim();
+  const store = storeName
+    ? { locationId: state.store && state.store.name === storeName ? state.store.locationId : null, name: storeName }
+    : state.store
+    ? { ...state.store }
+    : null;
+
+  const id = Date.now();
+  const trip = {
+    id,
+    savedAt,
+    store,
+    taxRate: rate,
+    budget: null,
+    subtotal,
+    tax,
+    total,
+    itemCount,
+    items: items.map((it, idx) => ({
+      upc: `receipt-${id}-${idx}`,
+      description: it.description.trim(),
+      brand: '',
+      size: '',
+      qty: it.qty || 1,
+      regularPrice: Number(it.price) || 0,
+      promoPrice: null,
+      unitPrice: Number(it.price) || 0,
+      taxable: !!it.taxable,
+      deptKey: it.deptKey || null,
+      categories: [],
+    })),
+  };
+
+  saveTrips([trip, ...loadTrips()]);
+  updateTripBadge();
+  renderTrips();
+  closeReceiptModal();
+  setStatus(`Receipt saved — ${itemCount} items, ${money(total)}.`, 'ok');
 }
 
 function renderItem(item, line) {
@@ -1661,6 +1913,59 @@ els.closeTripsBtn.addEventListener('click', closeTripsModal);
 els.exportTripsBtn.addEventListener('click', exportTrips);
 els.tripsModal.addEventListener('click', (e) => {
   if (e.target.classList.contains('scrim')) closeTripsModal();
+});
+
+// Receipt scanner wiring
+els.scanReceiptBtn.addEventListener('click', () => els.receiptFile.click());
+els.receiptFile.addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = ''; // allow re-selecting the same file
+  if (f) runReceiptOcr(f);
+});
+els.receiptClose.addEventListener('click', closeReceiptModal);
+els.rcCancel.addEventListener('click', closeReceiptModal);
+els.rcSave.addEventListener('click', saveReceiptAsTrip);
+els.rcAddLine.addEventListener('click', addReceiptLine);
+els.rcTaxRate.addEventListener('input', recomputeReceiptTotals);
+els.receiptModal.addEventListener('click', (e) => {
+  if (e.target.classList.contains('scrim')) closeReceiptModal();
+});
+// Delegated edits within the receipt item list.
+els.rcItems.addEventListener('input', (e) => {
+  const t = e.target;
+  const i = t.dataset.i;
+  if (i == null) return;
+  if (t.classList.contains('rc-desc')) receiptDraft.items[i].description = t.value;
+  else if (t.classList.contains('rc-price')) {
+    receiptDraft.items[i].price = parseFloat(t.value) || 0;
+    recomputeReceiptTotals();
+  }
+});
+els.rcItems.addEventListener('change', (e) => {
+  const t = e.target;
+  const i = t.dataset.i;
+  if (i == null) return;
+  if (t.classList.contains('rc-cat')) receiptDraft.items[i].deptKey = t.value;
+  else if (t.classList.contains('rc-tax')) {
+    receiptDraft.items[i].taxable = t.checked;
+    recomputeReceiptTotals();
+  }
+});
+els.rcItems.addEventListener('click', (e) => {
+  const del = e.target.closest('.rc-del');
+  if (del) {
+    receiptDraft.items.splice(Number(del.dataset.i), 1);
+    renderReceiptItems();
+    return;
+  }
+  const step = e.target.closest('.rc-qty [data-act]');
+  if (step) {
+    const i = step.closest('.rc-qty').dataset.i;
+    const item = receiptDraft.items[i];
+    item.qty = Math.max(1, (item.qty || 1) + (step.dataset.act === 'inc' ? 1 : -1));
+    step.closest('.rc-qty').querySelector('.qty').textContent = item.qty;
+    recomputeReceiptTotals();
+  }
 });
 
 // Theme toggle (initial theme already applied by the inline <head> script).

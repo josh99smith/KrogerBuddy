@@ -12,7 +12,7 @@
     <title>KrogerBuddy</title>
     <link rel="manifest" href="manifest.json" />
     <link rel="apple-touch-icon" href="icons/icon-192.png?v=2" />
-    <link rel="stylesheet" href="styles.css?v=24" />
+    <link rel="stylesheet" href="styles.css?v=25" />
     <script>
       // Set theme before paint to avoid a flash.
       (function () {
@@ -51,6 +51,7 @@
       <symbol id="i-export" viewBox="0 0 24 24"><path class="ln" d="M12 15V4m0 0 4 4m-4-4-4 4M5 14v4.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V14"/></symbol>
       <symbol id="i-gear" viewBox="0 0 24 24"><circle class="ln" cx="12" cy="12" r="3.2"/><path class="ln" d="M19.1 13a7.6 7.6 0 0 0 0-2l1.7-1.3-1.8-3.1-2 .8a7.5 7.5 0 0 0-1.7-1l-.3-2.1H9.9l-.3 2.1a7.5 7.5 0 0 0-1.7 1l-2-.8-1.8 3.1L5.8 11a7.6 7.6 0 0 0 0 2l-1.7 1.3 1.8 3.1 2-.8a7.5 7.5 0 0 0 1.7 1l.3 2.1h4.2l.3-2.1a7.5 7.5 0 0 0 1.7-1l2 .8 1.8-3.1L19.1 13Z"/></symbol>
       <symbol id="i-chart" viewBox="0 0 24 24"><path class="ln" d="M4 20V11M9.3 20V6M14.7 20v-6M20 20V9M3 20h18"/></symbol>
+      <symbol id="i-receipt" viewBox="0 0 24 24"><path class="ln" d="M6 3.5h12v17l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3V3.5Z"/><path class="ln" d="M9 8h6M9 11.5h6M9 15h4"/></symbol>
       <symbol id="f-beef" viewBox="0 0 24 24"><path d="M5 11.5C5 7.9 8.3 5.5 12.2 5.5S19 7.7 19 11.2c0 3.9-3.4 6.8-7.3 6.8-2.2 0-4-.7-5.2-2 .9-.2 1.6-1 1.6-2a2 2 0 0 0-3-1.7 6 6 0 0 1-.1-.8Z"/><circle cx="13.5" cy="11" r="2" style="fill:var(--brand-tint)"/></symbol>
       <symbol id="f-ground" viewBox="0 0 24 24"><path d="M4 16.5c0-3.8 3.6-6.5 8-6.5s8 2.7 8 6.5v.5H4v-.5Z"/><circle cx="8.5" cy="14.5" r="1"/><circle cx="12.5" cy="13.5" r="1"/><circle cx="15.5" cy="15" r="1"/></symbol>
       <symbol id="f-chicken" viewBox="0 0 24 24"><path d="M14.5 4a5 5 0 0 1 3.8 8.2c-1.6 1.9-4.3 2.2-6.2.9l-4 4a2 2 0 1 1-1.4-1.4l4-4c-1.3-1.9-1-4.6.9-6.2A5 5 0 0 1 14.5 4Z"/></symbol>
@@ -64,6 +65,9 @@
       <symbol id="f-produce" viewBox="0 0 24 24"><path d="M12 8c-1-2-3.5-2.5-5 0-1.3 2.2-1 6 1.5 8.5 1.9 1.9 5.1 1.9 7 0C18 14 18.3 10.2 17 8c-1.5-2.5-4-2-5 0Z"/><path class="ln" style="stroke-width:2.2" d="M12 8V5.5c0-1 .8-1.7 2.2-1.6"/></symbol>
       <symbol id="f-other" viewBox="0 0 24 24"><circle cx="7" cy="7" r="2.2"/><circle cx="17" cy="7" r="2.2"/><circle cx="7" cy="17" r="2.2"/><circle cx="17" cy="17" r="2.2"/></symbol>
     </svg>
+
+    <!-- Hidden capture input for receipt scanning -->
+    <input id="receiptFile" type="file" accept="image/*" capture="environment" class="hidden" />
 
     <!-- Slide-down install banner (web visits only) -->
     <div id="installBanner" class="install-banner">
@@ -338,7 +342,42 @@
         <div class="grabber"></div>
         <div class="sheet-head"><h3>Saved trips</h3><button id="closeTripsBtn" class="iconbtn" type="button" aria-label="Close"><svg class="ico" data-ic="i-close" viewBox="0 0 24 24"></svg></button></div>
         <div class="sheet-body"><div id="tripsList"></div></div>
-        <div class="sheet-foot"><button id="exportTripsBtn" class="btn btn-secondary btn-block btn-lg" type="button"><svg class="ico" data-ic="i-export" viewBox="0 0 24 24"></svg>Export trips</button></div>
+        <div class="sheet-foot" style="flex-direction:column;gap:var(--sp-2)">
+          <button id="scanReceiptBtn" class="btn btn-primary btn-block btn-lg" type="button"><svg class="ico" data-ic="i-receipt" viewBox="0 0 24 24"></svg>Scan a receipt</button>
+          <button id="exportTripsBtn" class="btn btn-secondary btn-block btn-lg" type="button"><svg class="ico" data-ic="i-export" viewBox="0 0 24 24"></svg>Export trips</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Receipt review sheet -->
+    <div id="receiptModal" class="sheet-overlay hidden">
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="sheet-head"><h3>Review receipt</h3><button id="receiptClose" class="iconbtn" type="button" aria-label="Close"><svg class="ico" data-ic="i-close" viewBox="0 0 24 24"></svg></button></div>
+        <div class="sheet-body">
+          <p class="sheet-hint">We read this from your photo — check the items and prices, fix anything, then save it as a past trip.</p>
+          <div class="field-row" style="margin-bottom:10px">
+            <div style="flex:1.5"><label class="field-label">Store</label><input id="rcStore" class="input" placeholder="Store name" /></div>
+            <div style="flex:1"><label class="field-label">Date</label><input id="rcDate" class="input" type="date" /></div>
+          </div>
+          <div id="rcItems" class="rc-items"></div>
+          <button id="rcAddLine" class="btn btn-ghost btn-block dashed" type="button"><svg class="ico" data-ic="i-plus" viewBox="0 0 24 24"></svg>Add a line</button>
+          <div class="rc-totals">
+            <div class="totals-line"><span>Subtotal</span><span class="val" id="rcSubtotal">$0.00</span></div>
+            <div class="totals-line">
+              <span style="display:flex;align-items:center;gap:8px">Tax
+                <span class="tax-field"><input id="rcTaxRate" value="0" inputmode="decimal" aria-label="Tax percent" /><span class="pct">%</span></span>
+              </span>
+              <span class="val" id="rcTaxAmount">$0.00</span>
+            </div>
+            <div class="totals-grand"><span class="lbl">Total</span><span class="amt" id="rcTotal">$0.00</span></div>
+          </div>
+        </div>
+        <div class="sheet-foot">
+          <button id="rcCancel" class="btn btn-secondary btn-lg" type="button" style="flex:1">Cancel</button>
+          <button id="rcSave" class="btn btn-primary btn-lg" type="button" style="flex:1.6"><svg class="ico" data-ic="i-check" viewBox="0 0 24 24"></svg>Save as trip</button>
+        </div>
       </div>
     </div>
 
@@ -351,7 +390,7 @@
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=24"></script>
-    <script src="app.js?v=24"></script>
+    <script src="config.js?v=25"></script>
+    <script src="app.js?v=25"></script>
   </body>
 </html>
