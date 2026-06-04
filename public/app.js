@@ -136,6 +136,12 @@ const els = {
   cropRotL: $('cropRotL'),
   cropRotR: $('cropRotR'),
   cropReset: $('cropReset'),
+  cropAuto: $('cropAuto'),
+  cropPreview: $('cropPreview'),
+  prepContrast: $('prepContrast'),
+  prepBright: $('prepBright'),
+  prepBW: $('prepBW'),
+  prepDeskew: $('prepDeskew'),
   cropWhole: $('cropWhole'),
   cropScan: $('cropScan'),
   receiptModal: $('receiptModal'),
@@ -1169,8 +1175,28 @@ function openCropModal(file) {
   const img = new Image();
   img.onload = () => {
     URL.revokeObjectURL(url);
-    cropState = { file, img, rotation: 0, base: null, x: 0.04, y: 0.04, w: 0.92, h: 0.92 };
+    cropState = {
+      file,
+      img,
+      rotation: 0,
+      base: null,
+      x: 0.04,
+      y: 0.04,
+      w: 0.92,
+      h: 0.92,
+      // Preprocessing the user can tweak; reflected live in the preview and
+      // applied to the image we actually hand to the OCR engine.
+      prep: { contrast: 0, brightness: 0, bw: false, deskew: true },
+    };
+    // Sync the controls back to defaults each time the sheet opens.
+    if (els.prepContrast) els.prepContrast.value = 0;
+    if (els.prepBright) els.prepBright.value = 0;
+    if (els.prepBW) els.prepBW.checked = false;
+    if (els.prepDeskew) els.prepDeskew.checked = true;
     renderCropBase();
+    autoDetectCrop(); // frame the receipt automatically; user can fine-tune
+    positionCropBox();
+    updateCropPreview();
     els.cropModal.classList.remove('hidden');
   };
   img.onerror = () => {
@@ -1203,6 +1229,7 @@ function renderCropBase() {
   cropState.base = c;
   els.cropImg.src = c.toDataURL('image/jpeg', 0.92);
   positionCropBox();
+  updateCropPreview();
 }
 function positionCropBox() {
   const { x, y, w, h } = cropState;
@@ -1210,6 +1237,202 @@ function positionCropBox() {
   els.cropBox.style.top = y * 100 + '%';
   els.cropBox.style.width = w * 100 + '%';
   els.cropBox.style.height = h * 100 + '%';
+}
+
+// ---- Auto edge detection ---------------------------------------------------
+// Find the receipt within the photo by its texture: text + edges produce strong
+// gradients, so we sum gradient magnitude per row/column and take the bounding
+// box of the "busy" region. Works regardless of background color.
+function autoDetectCrop() {
+  try {
+    const base = cropState.base;
+    const W = 220;
+    const s = Math.min(1, W / base.width || 1);
+    const w = Math.max(2, Math.round(base.width * s));
+    const h = Math.max(2, Math.round(base.height * s));
+    const t = document.createElement('canvas');
+    t.width = w;
+    t.height = h;
+    const tc = t.getContext('2d');
+    tc.drawImage(base, 0, 0, w, h);
+    const d = tc.getImageData(0, 0, w, h).data;
+    const g = new Float32Array(w * h);
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      g[p] = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+    }
+    const col = new Float32Array(w);
+    const row = new Float32Array(h);
+    for (let y = 1; y < h; y++) {
+      for (let x = 1; x < w; x++) {
+        const m = Math.abs(g[y * w + x] - g[y * w + x - 1]) + Math.abs(g[y * w + x] - g[(y - 1) * w + x]);
+        col[x] += m;
+        row[y] += m;
+      }
+    }
+    const bound = (arr) => {
+      let max = 0;
+      for (const v of arr) if (v > max) max = v;
+      const thr = max * 0.12;
+      let lo = 0;
+      let hi = arr.length - 1;
+      while (lo < arr.length && arr[lo] < thr) lo++;
+      while (hi > lo && arr[hi] < thr) hi--;
+      return hi > lo ? [lo, hi] : [0, arr.length - 1];
+    };
+    const [x0, x1] = bound(col);
+    const [y0, y1] = bound(row);
+    const padX = (x1 - x0) * 0.03 + 1;
+    const padY = (y1 - y0) * 0.02 + 1;
+    let nx = Math.max(0, (x0 - padX) / w);
+    let ny = Math.max(0, (y0 - padY) / h);
+    let nw = Math.min(1 - nx, (x1 - x0 + 2 * padX) / w);
+    let nh = Math.min(1 - ny, (y1 - y0 + 2 * padY) / h);
+    if (nw < 0.12 || nh < 0.12) {
+      nx = 0.02;
+      ny = 0.02;
+      nw = 0.96;
+      nh = 0.96;
+    }
+    cropState.x = nx;
+    cropState.y = ny;
+    cropState.w = nw;
+    cropState.h = nh;
+  } catch (_) {
+    /* leave the default frame */
+  }
+}
+
+// ---- Preprocessing (deskew + tone) -----------------------------------------
+// Crop the selected region out of the rotated base canvas, capped at maxDim.
+function cropRegionCanvas(maxDim) {
+  const { base, x, y, w, h } = cropState;
+  const sx = Math.round(x * base.width);
+  const sy = Math.round(y * base.height);
+  const sw = Math.max(1, Math.round(w * base.width));
+  const sh = Math.max(1, Math.round(h * base.height));
+  const scale = Math.min(1, maxDim / Math.max(sw, sh) || 1);
+  const cw = Math.max(1, Math.round(sw * scale));
+  const ch = Math.max(1, Math.round(sh * scale));
+  const c = document.createElement('canvas');
+  c.width = cw;
+  c.height = ch;
+  c.getContext('2d').drawImage(base, sx, sy, sw, sh, 0, 0, cw, ch);
+  return c;
+}
+
+// Estimate small skew by projecting dark (text) pixels at candidate angles and
+// picking the angle whose horizontal projection is "peakiest" (rows aligned).
+function estimateSkewAngle(c) {
+  const W = 240;
+  const s = Math.min(1, W / c.width || 1);
+  const w = Math.max(2, Math.round(c.width * s));
+  const h = Math.max(2, Math.round(c.height * s));
+  const t = document.createElement('canvas');
+  t.width = w;
+  t.height = h;
+  t.getContext('2d').drawImage(c, 0, 0, w, h);
+  const d = t.getContext('2d').getImageData(0, 0, w, h).data;
+  const gray = new Float32Array(w * h);
+  let sum = 0;
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const g = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+    gray[p] = g;
+    sum += g;
+  }
+  const thr = (sum / (w * h)) * 0.7;
+  const dark = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (gray[y * w + x] < thr) dark.push(x, y);
+  if (dark.length < 120) return 0; // not enough text to judge
+  const MAXDEG = 8;
+  const maxOff = Math.ceil(w * Math.sin((MAXDEG * Math.PI) / 180)) + 1;
+  const len = h + 2 * maxOff + 2;
+  let best = 0;
+  let bestEnergy = -1;
+  for (let deg = -MAXDEG; deg <= MAXDEG; deg++) {
+    const rad = (deg * Math.PI) / 180;
+    const c1 = Math.cos(rad);
+    const s1 = Math.sin(rad);
+    const bins = new Float32Array(len);
+    for (let k = 0; k < dark.length; k += 2) {
+      const yp = Math.round(dark[k] * s1 + dark[k + 1] * c1) + maxOff;
+      if (yp >= 0 && yp < len) bins[yp]++;
+    }
+    let energy = 0;
+    for (let i = 0; i < len; i++) energy += bins[i] * bins[i];
+    if (energy > bestEnergy) {
+      bestEnergy = energy;
+      best = deg;
+    }
+  }
+  return best;
+}
+
+function rotateCanvasDeg(c, deg) {
+  if (!deg) return c;
+  const out = document.createElement('canvas');
+  out.width = c.width;
+  out.height = c.height;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((-deg * Math.PI) / 180);
+  ctx.drawImage(c, -c.width / 2, -c.height / 2);
+  return out;
+}
+
+// Grayscale + brightness/contrast, then either contrast-stretch or hard B&W.
+function applyTone(c, contrast, brightness, bw) {
+  const ctx = c.getContext('2d');
+  const im = ctx.getImageData(0, 0, c.width, c.height);
+  const px = im.data;
+  const cf = (259 * (contrast + 255)) / (255 * (259 - contrast));
+  let min = 255;
+  let max = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    let g = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114 + brightness;
+    g = cf * (g - 128) + 128;
+    g = g < 0 ? 0 : g > 255 ? 255 : g;
+    px[i] = px[i + 1] = px[i + 2] = g;
+    if (g < min) min = g;
+    if (g > max) max = g;
+  }
+  if (bw) {
+    const thr = (min + max) / 2;
+    for (let i = 0; i < px.length; i += 4) {
+      const v = px[i] < thr ? 0 : 255;
+      px[i] = px[i + 1] = px[i + 2] = v;
+    }
+  } else {
+    const range = Math.max(1, max - min);
+    for (let i = 0; i < px.length; i += 4) {
+      const v = ((px[i] - min) * 255) / range;
+      px[i] = px[i + 1] = px[i + 2] = v;
+    }
+  }
+  ctx.putImageData(im, 0, 0);
+  return c;
+}
+
+// Produce the final, OCR-ready canvas: crop → deskew → tone, using the user's
+// current settings. maxDim keeps the preview cheap and the scan high-res.
+function makeProcessedCanvas(maxDim) {
+  const p = cropState.prep;
+  let work = cropRegionCanvas(maxDim);
+  if (p.deskew) work = rotateCanvasDeg(work, estimateSkewAngle(work));
+  applyTone(work, p.contrast * 2.55, p.brightness, p.bw);
+  return work;
+}
+
+function updateCropPreview() {
+  if (!cropState || !els.cropPreview) return;
+  try {
+    const out = makeProcessedCanvas(560);
+    const pv = els.cropPreview;
+    pv.width = out.width;
+    pv.height = out.height;
+    pv.getContext('2d').drawImage(out, 0, 0);
+  } catch (_) {}
 }
 
 let cropDrag = null;
@@ -1257,6 +1480,7 @@ function cropPointerMove(e) {
   positionCropBox();
 }
 function cropPointerUp(e) {
+  if (cropDrag) updateCropPreview(); // refresh the cleaned-up preview after a drag
   cropDrag = null;
   try { els.cropStage.releasePointerCapture(e.pointerId); } catch (_) {}
 }
@@ -1266,15 +1490,10 @@ function cropScanNow() {
     closeCropModal();
     return;
   }
-  const { base, x, y, w, h, file } = cropState;
-  const sx = Math.round(x * base.width);
-  const sy = Math.round(y * base.height);
-  const sw = Math.max(1, Math.round(w * base.width));
-  const sh = Math.max(1, Math.round(h * base.height));
-  const out = document.createElement('canvas');
-  out.width = sw;
-  out.height = sh;
-  out.getContext('2d').drawImage(base, sx, sy, sw, sh, 0, 0, sw, sh);
+  const file = cropState.file;
+  // Hand the OCR engine exactly what the preview showed: cropped, straightened,
+  // and tone-adjusted at full resolution.
+  const out = makeProcessedCanvas(2200);
   out.toBlob(
     (blob) => {
       closeCropModal();
@@ -1390,6 +1609,181 @@ async function runReceiptOcr(file) {
   }
 }
 
+// ---- Receipt abbreviation library -----------------------------------------
+// Grocery receipts (Kroger and its banners: Ralphs, Fry's, King Soopers, QFC,
+// Dillons, Smith's, Harris Teeter, Fred Meyer, Mariano's, etc.) print item
+// names through a cramped, fixed-width register that strips vowels and clips
+// words to fit ~20 characters. This token map expands the common shorthand
+// back into readable words. It is intentionally comprehensive but always
+// extensible: the learning loop below grows it from the user's own
+// confirmations, so the library gets smarter with every saved receipt.
+//
+// Keys are matched case-insensitively against whole tokens (split on spaces and
+// slashes). Values are the human-readable expansion. Order doesn't matter.
+const RECEIPT_ABBREV = {
+  // --- Brands / Kroger private labels ---
+  kro: 'Kroger', krgr: 'Kroger', krog: 'Kroger', kr: 'Kroger',
+  psst: 'P$t', pst: 'P$t', 'p$t': 'P$t',
+  st: 'Simple Truth', simptrth: 'Simple Truth', struth: 'Simple Truth',
+  hmpln: 'Home Sense', 'pvt sel': 'Private Selection', prvsel: 'Private Selection',
+  cmfrt: 'Comforts', bigk: 'Big K', luvsm: 'Luvsome',
+  // --- Meat & poultry ---
+  chkn: 'Chicken', chk: 'Chicken', chick: 'Chicken', ckn: 'Chicken',
+  bf: 'Beef', beef: 'Beef', grnd: 'Ground', grd: 'Ground', gr: 'Ground',
+  brst: 'Breast', brsts: 'Breasts', brest: 'Breast', thgh: 'Thigh', thghs: 'Thighs',
+  bnls: 'Boneless', bnlss: 'Boneless', bls: 'Boneless', bonls: 'Boneless',
+  sknls: 'Skinless', skls: 'Skinless', skinls: 'Skinless',
+  'b/s': 'Boneless Skinless', bsb: 'Boneless Skinless Breast',
+  prk: 'Pork', sausg: 'Sausage', saus: 'Sausage', ssg: 'Sausage', ssge: 'Sausage',
+  bacn: 'Bacon', bcn: 'Bacon', tky: 'Turkey', trky: 'Turkey', turk: 'Turkey',
+  grnbf: 'Ground Beef', gbf: 'Ground Beef', ham: 'Ham', rst: 'Roast', rstd: 'Roasted',
+  stk: 'Steak', stks: 'Steaks', rib: 'Rib', ribs: 'Ribs', chuk: 'Chuck',
+  sirln: 'Sirloin', tndrln: 'Tenderloin', tndr: 'Tender', tndrs: 'Tenders',
+  drmstk: 'Drumstick', wng: 'Wing', wngs: 'Wings', ptty: 'Patty', pttys: 'Patties',
+  lb: 'Lb', lbs: 'Lbs', 'w/o': 'Without', wo: 'Without', 'w/': 'With',
+  // --- Seafood ---
+  shrmp: 'Shrimp', shrp: 'Shrimp', slmn: 'Salmon', sal: 'Salmon', tlpa: 'Tilapia',
+  cod: 'Cod', crb: 'Crab', tuna: 'Tuna', ctfsh: 'Catfish', fil: 'Fillet', filet: 'Fillet',
+  // --- Deli & cheese ---
+  chs: 'Cheese', chse: 'Cheese', ched: 'Cheddar', chedr: 'Cheddar', mozz: 'Mozzarella',
+  parm: 'Parmesan', amer: 'American', prov: 'Provolone', swis: 'Swiss', swss: 'Swiss',
+  shrd: 'Shredded', shred: 'Shredded', shrdd: 'Shredded', slcd: 'Sliced', slc: 'Sliced',
+  crm: 'Cream', crmchs: 'Cream Cheese', cottg: 'Cottage', strng: 'String',
+  deli: 'Deli', rotis: 'Rotisserie', rstbf: 'Roast Beef', pastr: 'Pastrami',
+  // --- Dairy & eggs ---
+  mlk: 'Milk', mk: 'Milk', whl: 'Whole', wht: 'White', skm: 'Skim', rdcd: 'Reduced',
+  egg: 'Egg', eggs: 'Eggs', lg: 'Large', xl: 'Extra Large', med: 'Medium', sm: 'Small',
+  ygrt: 'Yogurt', yog: 'Yogurt', ygt: 'Yogurt', greek: 'Greek', btr: 'Butter', bttr: 'Butter',
+  hvy: 'Heavy', hlfhlf: 'Half & Half', 'hlf&hlf': 'Half & Half', sr: 'Sour', srcrm: 'Sour Cream',
+  crmr: 'Creamer', marg: 'Margarine', cndnsd: 'Condensed', evap: 'Evaporated',
+  // --- Produce ---
+  vg: 'Vegetable', veg: 'Vegetable', vggie: 'Veggie', frt: 'Fruit', frsh: 'Fresh',
+  org: 'Organic', orgnc: 'Organic', org: 'Organic', ban: 'Banana', bana: 'Banana', bnna: 'Banana',
+  appl: 'Apple', appls: 'Apples', tom: 'Tomato', tmto: 'Tomato', tmt: 'Tomato',
+  pot: 'Potato', pott: 'Potato', ptto: 'Potato', onn: 'Onion', onon: 'Onion', oni: 'Onion',
+  let: 'Lettuce', lett: 'Lettuce', rmn: 'Romaine', spnch: 'Spinach', spin: 'Spinach',
+  bcli: 'Broccoli', brcl: 'Broccoli', carr: 'Carrot', carrt: 'Carrot', clry: 'Celery',
+  cuke: 'Cucumber', cucmb: 'Cucumber', ppr: 'Pepper', pep: 'Pepper', bell: 'Bell',
+  straw: 'Strawberry', strwb: 'Strawberry', blueb: 'Blueberry', blbry: 'Blueberry',
+  grp: 'Grape', grps: 'Grapes', avo: 'Avocado', avcdo: 'Avocado', mush: 'Mushroom', mshrm: 'Mushroom',
+  grn: 'Green', red: 'Red', yel: 'Yellow', ylw: 'Yellow', sld: 'Salad', sd: 'Salad',
+  // --- Bakery & bread ---
+  brd: 'Bread', bred: 'Bread', whtbrd: 'Wheat Bread', wht: 'Wheat', bgl: 'Bagel', bgls: 'Bagels',
+  bun: 'Bun', buns: 'Buns', mffn: 'Muffin', mffns: 'Muffins', donut: 'Donut', dnut: 'Donut',
+  croisnt: 'Croissant', tort: 'Tortilla', tort: 'Tortilla', cake: 'Cake', cky: 'Cookie', ckys: 'Cookies',
+  // --- Pantry / dry goods ---
+  cer: 'Cereal', cereal: 'Cereal', pasta: 'Pasta', spag: 'Spaghetti', mac: 'Macaroni',
+  rce: 'Rice', rice: 'Rice', bns: 'Beans', bean: 'Bean', flr: 'Flour', sgr: 'Sugar', sug: 'Sugar',
+  slt: 'Salt', pep: 'Pepper', oil: 'Oil', olv: 'Olive', vegoil: 'Vegetable Oil',
+  ktchp: 'Ketchup', mstrd: 'Mustard', mayo: 'Mayonnaise', mayn: 'Mayonnaise',
+  sce: 'Sauce', sauc: 'Sauce', sce: 'Sauce', mar: 'Marinara', sals: 'Salsa', srcha: 'Sriracha',
+  pb: 'Peanut Butter', pnt: 'Peanut', pnut: 'Peanut', jly: 'Jelly', jam: 'Jam',
+  sp: 'Soup', soup: 'Soup', brth: 'Broth', stck: 'Stock', crackr: 'Cracker', crckr: 'Cracker',
+  chps: 'Chips', chip: 'Chip', pretz: 'Pretzel', popcrn: 'Popcorn', granla: 'Granola',
+  // --- Beverages ---
+  wtr: 'Water', watr: 'Water', sda: 'Soda', cola: 'Cola', jce: 'Juice', juc: 'Juice', jc: 'Juice',
+  oj: 'Orange Juice', cof: 'Coffee', coff: 'Coffee', cofe: 'Coffee', tea: 'Tea',
+  enrgy: 'Energy', drk: 'Drink', drnk: 'Drink', bev: 'Beverage', sparkl: 'Sparkling',
+  // --- Frozen ---
+  frz: 'Frozen', frzn: 'Frozen', frozn: 'Frozen', icecrm: 'Ice Cream', 'ice crm': 'Ice Cream',
+  pizz: 'Pizza', pza: 'Pizza', wffl: 'Waffle', wffls: 'Waffles',
+  // --- Household / paper / cleaning ---
+  ppr: 'Paper', twl: 'Towel', twls: 'Towels', tlt: 'Toilet', tiss: 'Tissue', napk: 'Napkin',
+  dtrgnt: 'Detergent', detgnt: 'Detergent', sftnr: 'Softener', dish: 'Dish', dishsp: 'Dish Soap',
+  clnr: 'Cleaner', bleach: 'Bleach', sponge: 'Sponge', trash: 'Trash', fbric: 'Fabric',
+  fl: 'Foil', wrap: 'Wrap', bag: 'Bag', bags: 'Bags', zip: 'Zipper', stor: 'Storage',
+  // --- Health & beauty ---
+  shmp: 'Shampoo', shamp: 'Shampoo', cond: 'Conditioner', sp: 'Soap', bdywsh: 'Body Wash',
+  tthpst: 'Toothpaste', tthbrsh: 'Toothbrush', deod: 'Deodorant', dod: 'Deodorant',
+  lotn: 'Lotion', razr: 'Razor', vitm: 'Vitamin', vit: 'Vitamin', mdcn: 'Medicine',
+  // --- Baby / pet ---
+  diap: 'Diaper', diapr: 'Diaper', wipe: 'Wipe', wipes: 'Wipes', frmla: 'Formula',
+  dog: 'Dog', cat: 'Cat', petfd: 'Pet Food', litr: 'Litter',
+  // --- Generic descriptors / units / packaging ---
+  pk: 'Pack', pkg: 'Package', pck: 'Pack', ct: 'Count', cnt: 'Count', ea: 'Each',
+  btl: 'Bottle', bttl: 'Bottle', cn: 'Can', jar: 'Jar', box: 'Box', bx: 'Box',
+  oz: 'Oz', flz: 'Fl Oz', gal: 'Gallon', qt: 'Quart', pt: 'Pint', ltr: 'Liter', ml: 'mL',
+  dz: 'Dozen', doz: 'Dozen', dbl: 'Double', sgl: 'Single', mini: 'Mini', mlt: 'Multi',
+  lt: 'Light', lite: 'Light', lt: 'Light', ff: 'Fat Free', lf: 'Low Fat', rf: 'Reduced Fat',
+  ns: 'No Salt', usd: 'Unsalted', sltd: 'Salted', swt: 'Sweet', uns: 'Unsweetened',
+  ntl: 'Natural', nat: 'Natural', clsc: 'Classic', orig: 'Original', orgnl: 'Original',
+  smkd: 'Smoked', smk: 'Smoke', spcy: 'Spicy', hot: 'Hot', mld: 'Mild', xtr: 'Extra',
+  cnnd: 'Canned', dcd: 'Diced', chpd: 'Chopped', crsd: 'Crushed', whl: 'Whole',
+  asst: 'Assorted', vrty: 'Variety', flvr: 'Flavor', flvrd: 'Flavored', choc: 'Chocolate',
+  van: 'Vanilla', vnla: 'Vanilla', strw: 'Strawberry', cinn: 'Cinnamon', cinm: 'Cinnamon',
+  fam: 'Family', val: 'Value', sz: 'Size', econ: 'Economy', jmb: 'Jumbo', lrg: 'Large',
+  prem: 'Premium', dlx: 'Deluxe', gldn: 'Golden', fry: 'Fry', fries: 'Fries',
+};
+
+const LEARNED_NAMES_KEY = 'krogerbuddy.receiptNames';
+function loadLearnedNames() {
+  try {
+    const raw = localStorage.getItem(LEARNED_NAMES_KEY);
+    if (raw) return JSON.parse(raw) || {};
+  } catch (_) {}
+  return {};
+}
+function saveLearnedNames(map) {
+  try {
+    localStorage.setItem(LEARNED_NAMES_KEY, JSON.stringify(map));
+  } catch (_) {}
+}
+// Normalize an OCR description to a stable lookup key (case/spacing/punctuation
+// insensitive) so "GV CHKN BRST" and "gv  chkn  brst." map to one entry.
+function receiptNameKey(raw) {
+  return String(raw || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+let LEARNED_NAMES = loadLearnedNames();
+
+// Record a user-confirmed correction so future receipts auto-expand it. Only
+// stores meaningful, distinct names — never blanks or unchanged auto-guesses.
+function learnReceiptName(raw, finalName) {
+  const key = receiptNameKey(raw);
+  const clean = String(finalName || '').trim();
+  if (!key || clean.length < 2) return;
+  if (receiptNameKey(clean) === key) return; // identical to the raw text — nothing learned
+  if (LEARNED_NAMES[key] === clean) return;
+  LEARNED_NAMES[key] = clean;
+  saveLearnedNames(LEARNED_NAMES);
+  if (DEBUG) debugLog(`learned receipt name: "${raw}" → "${clean}"`);
+}
+function learnedNameFor(raw) {
+  const key = receiptNameKey(raw);
+  return key && LEARNED_NAMES[key] ? LEARNED_NAMES[key] : null;
+}
+
+// Expand a raw OCR item description into a readable name using the abbreviation
+// library. User-learned corrections win; otherwise we expand token-by-token.
+function expandReceiptName(raw) {
+  const learned = learnedNameFor(raw);
+  if (learned) return learned;
+  const src = String(raw || '').trim();
+  if (!src) return src;
+  // Split on spaces and slashes but keep the pieces; rejoin with spaces.
+  const tokens = src.split(/[\s/]+/).filter(Boolean);
+  const out = tokens.map((tok) => {
+    // Strip surrounding punctuation for the lookup, keep it off the result.
+    const core = tok.replace(/[^A-Za-z0-9$&]/g, '');
+    if (!core) return null;
+    const hit = RECEIPT_ABBREV[core.toLowerCase()];
+    if (hit) return hit;
+    // Pure numbers / sizes (12, 2%, 16oz already split) pass through as-is.
+    if (/^\d+%?$/.test(core)) return core;
+    // Already-readable words (has a vowel and ≥4 chars) keep their casing-tidied form.
+    if (core.length >= 4 && /[aeiou]/i.test(core)) {
+      return core.charAt(0).toUpperCase() + core.slice(1).toLowerCase();
+    }
+    // Short vowel-less fragments we don't know: title-case but leave intact.
+    return core.length <= 3 ? core.toUpperCase() : core.charAt(0).toUpperCase() + core.slice(1).toLowerCase();
+  }).filter(Boolean);
+  const joined = out.join(' ').replace(/\s+/g, ' ').trim();
+  return joined || src;
+}
+
 // Pure parser: extract items, totals, and date from OCR text. Imperfect by
 // design — the review step is the safety net.
 function parseReceiptText(text) {
@@ -1470,7 +1864,17 @@ function parseReceiptText(text) {
     if (!/[A-Za-z]{3,}/.test(desc)) continue;
 
     const taxable = /\s[TF]\s*$/i.test(line) ? /\sT\s*$/i.test(line) : true;
-    items.push({ description: desc, price: amount, qty: 1, taxable, deptKey: categorize({ description: desc }).key });
+    // Keep the raw OCR text so the learning loop can map it to the user's final
+    // name; show the expanded, readable name (learned correction wins).
+    const friendly = expandReceiptName(desc);
+    items.push({
+      description: friendly,
+      raw: desc,
+      price: amount,
+      qty: 1,
+      taxable,
+      deptKey: categorize({ description: friendly }).key,
+    });
   }
 
   return { items, subtotal, tax, total, date, store };
@@ -1562,6 +1966,12 @@ function saveReceiptAsTrip() {
   const { subtotal, tax, total } = recomputeReceiptTotals();
   const rate = Number(els.rcTaxRate.value) || 0;
   const itemCount = items.reduce((n, it) => n + (it.qty || 1), 0);
+
+  // Learning loop: if the user kept a `raw` OCR line but renamed it, remember
+  // that mapping so the next receipt expands it automatically.
+  for (const it of items) {
+    if (it.raw) learnReceiptName(it.raw, it.description);
+  }
 
   let savedAt = new Date().toISOString();
   if (els.rcDate.value) {
@@ -2252,6 +2662,21 @@ els.cropReset.addEventListener('click', () => {
   cropState.x = 0.04; cropState.y = 0.04; cropState.w = 0.92; cropState.h = 0.92;
   renderCropBase();
 });
+els.cropAuto.addEventListener('click', () => {
+  if (!cropState) return;
+  autoDetectCrop();
+  positionCropBox();
+  updateCropPreview();
+});
+// Live preprocessing controls — update the cleaned-up preview as the user tunes.
+if (els.prepContrast)
+  els.prepContrast.addEventListener('input', () => { if (cropState) { cropState.prep.contrast = Number(els.prepContrast.value) || 0; updateCropPreview(); } });
+if (els.prepBright)
+  els.prepBright.addEventListener('input', () => { if (cropState) { cropState.prep.brightness = Number(els.prepBright.value) || 0; updateCropPreview(); } });
+if (els.prepBW)
+  els.prepBW.addEventListener('change', () => { if (cropState) { cropState.prep.bw = els.prepBW.checked; updateCropPreview(); } });
+if (els.prepDeskew)
+  els.prepDeskew.addEventListener('change', () => { if (cropState) { cropState.prep.deskew = els.prepDeskew.checked; updateCropPreview(); } });
 els.cropScan.addEventListener('click', cropScanNow);
 els.cropWhole.addEventListener('click', () => { const f = cropState.file; closeCropModal(); runReceiptOcr(f); });
 els.cropClose.addEventListener('click', closeCropModal);

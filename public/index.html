@@ -12,7 +12,7 @@
     <title>KrogerBuddy</title>
     <link rel="manifest" href="manifest.json" />
     <link rel="apple-touch-icon" href="icons/icon-192.png?v=2" />
-    <link rel="stylesheet" href="styles.css?v=32" />
+    <link rel="stylesheet" href="styles.css?v=33" />
     <script>
       // Set theme before paint to avoid a flash.
       (function () {
@@ -392,7 +392,7 @@
         <div class="grabber"></div>
         <div class="sheet-head"><h3>Crop the receipt</h3><button id="cropClose" class="iconbtn" type="button" aria-label="Close"><svg class="ico" data-ic="i-close" viewBox="0 0 24 24"></svg></button></div>
         <div class="sheet-body">
-          <p class="sheet-hint">Drag the corners to frame just the receipt, and rotate if it’s sideways. A tight, straight crop reads far better.</p>
+          <p class="sheet-hint">Edges are auto-detected — drag the corners to fine-tune, and rotate if it’s sideways. A tight, straight crop reads far better.</p>
           <div id="cropStage" class="crop-stage">
             <img id="cropImg" alt="" />
             <div id="cropBox" class="crop-box">
@@ -401,9 +401,24 @@
             </div>
           </div>
           <div class="crop-tools">
+            <button id="cropAuto" class="btn btn-secondary" type="button">Auto-detect edges</button>
             <button id="cropRotL" class="btn btn-secondary" type="button">⟲ Left</button>
             <button id="cropRotR" class="btn btn-secondary" type="button">Right ⟳</button>
             <button id="cropReset" class="btn btn-ghost" type="button">Reset</button>
+          </div>
+
+          <div class="crop-pre">
+            <div class="crop-pre-head">
+              <span>Cleaned-up preview</span>
+              <span class="crop-pre-sub">This is what the scanner will read</span>
+            </div>
+            <div class="crop-pre-stage"><canvas id="cropPreview" class="crop-preview"></canvas></div>
+            <label class="prep-row"><span>Contrast</span><input id="prepContrast" type="range" min="-100" max="100" value="0" /></label>
+            <label class="prep-row"><span>Brightness</span><input id="prepBright" type="range" min="-100" max="100" value="0" /></label>
+            <div class="prep-toggles">
+              <label class="prep-chip"><input id="prepDeskew" type="checkbox" checked /><span>Auto-straighten</span></label>
+              <label class="prep-chip"><input id="prepBW" type="checkbox" /><span>Black &amp; white</span></label>
+            </div>
           </div>
         </div>
         <div class="sheet-foot">
@@ -422,7 +437,7 @@
       <pre id="debugOut" class="debug-out"></pre>
     </div>
 
-    <script src="config.js?v=32"></script>
-    <script src="app.js?v=32"></script>
+    <script src="config.js?v=33"></script>
+    <script src="app.js?v=33"></script>
   </body>
 </html>
