@@ -127,6 +127,7 @@ const els = {
   exportTripsBtn: $('exportTripsBtn'),
   receiptFile: $('receiptFile'),
   scanReceiptBtn: $('scanReceiptBtn'),
+  pickReceiptBtn: $('pickReceiptBtn'),
   receiptModal: $('receiptModal'),
   receiptClose: $('receiptClose'),
   rcStore: $('rcStore'),
@@ -1915,8 +1916,16 @@ els.tripsModal.addEventListener('click', (e) => {
   if (e.target.classList.contains('scrim')) closeTripsModal();
 });
 
-// Receipt scanner wiring
-els.scanReceiptBtn.addEventListener('click', () => els.receiptFile.click());
+// Receipt scanner wiring — "Scan receipt" forces the camera, "From photos"
+// lets the user pick an existing image (both share one file input + handler).
+els.scanReceiptBtn.addEventListener('click', () => {
+  els.receiptFile.setAttribute('capture', 'environment');
+  els.receiptFile.click();
+});
+els.pickReceiptBtn.addEventListener('click', () => {
+  els.receiptFile.removeAttribute('capture');
+  els.receiptFile.click();
+});
 els.receiptFile.addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = ''; // allow re-selecting the same file
