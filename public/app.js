@@ -128,6 +128,16 @@ const els = {
   receiptFile: $('receiptFile'),
   scanReceiptBtn: $('scanReceiptBtn'),
   pickReceiptBtn: $('pickReceiptBtn'),
+  cropModal: $('cropModal'),
+  cropClose: $('cropClose'),
+  cropImg: $('cropImg'),
+  cropStage: $('cropStage'),
+  cropBox: $('cropBox'),
+  cropRotL: $('cropRotL'),
+  cropRotR: $('cropRotR'),
+  cropReset: $('cropReset'),
+  cropWhole: $('cropWhole'),
+  cropScan: $('cropScan'),
   receiptModal: $('receiptModal'),
   receiptClose: $('receiptClose'),
   rcStore: $('rcStore'),
@@ -1151,53 +1161,137 @@ async function getOcrWorker(Tesseract) {
   return ocrWorker;
 }
 
-// Try the cloud receipt parser (Taggun via the Worker). Returns a parsed object
-// in our shape, or null if it's not configured / unavailable so we can fall
-// back to on-device OCR.
-async function cloudParseReceipt(file) {
-  if (!API_BASE) return null;
-  setStatus('Reading your receipt…', 'busy');
-  let res;
-  try {
-    res = await fetch(`${API_BASE}/api/receipt`, { method: 'POST', body: file });
-  } catch (_) {
-    return null; // network issue -> fall back
+// ---- Crop & rotate (before OCR) -------------------------------------------
+let cropState = null;
+
+function openCropModal(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    cropState = { file, img, rotation: 0, base: null, x: 0.04, y: 0.04, w: 0.92, h: 0.92 };
+    renderCropBase();
+    els.cropModal.classList.remove('hidden');
+  };
+  img.onerror = () => {
+    // Can't display it (e.g. HEIC on some platforms) — just OCR the raw file.
+    URL.revokeObjectURL(url);
+    runReceiptOcr(file);
+  };
+  img.src = url;
+}
+function closeCropModal() {
+  els.cropModal.classList.add('hidden');
+  cropState = null;
+}
+
+function renderCropBase() {
+  const { img, rotation } = cropState;
+  const rot = ((rotation % 360) + 360) % 360;
+  const swap = rot === 90 || rot === 270;
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  const cw = swap ? h : w;
+  const ch = swap ? w : h;
+  const c = document.createElement('canvas');
+  c.width = cw;
+  c.height = ch;
+  const ctx = c.getContext('2d');
+  ctx.translate(cw / 2, ch / 2);
+  ctx.rotate((rot * Math.PI) / 180);
+  ctx.drawImage(img, -w / 2, -h / 2);
+  cropState.base = c;
+  els.cropImg.src = c.toDataURL('image/jpeg', 0.92);
+  positionCropBox();
+}
+function positionCropBox() {
+  const { x, y, w, h } = cropState;
+  els.cropBox.style.left = x * 100 + '%';
+  els.cropBox.style.top = y * 100 + '%';
+  els.cropBox.style.width = w * 100 + '%';
+  els.cropBox.style.height = h * 100 + '%';
+}
+
+let cropDrag = null;
+function cropPointerDown(e) {
+  if (!cropState) return;
+  const handle = e.target.closest('.crop-h');
+  const onBox = els.cropBox.contains(e.target) || e.target === els.cropBox;
+  if (!handle && !onBox) return;
+  e.preventDefault();
+  cropDrag = {
+    rect: els.cropStage.getBoundingClientRect(),
+    mode: handle ? handle.dataset.h : 'move',
+    sx: e.clientX,
+    sy: e.clientY,
+    ox: cropState.x,
+    oy: cropState.y,
+    ow: cropState.w,
+    oh: cropState.h,
+  };
+  try { els.cropStage.setPointerCapture(e.pointerId); } catch (_) {}
+}
+function cropPointerMove(e) {
+  if (!cropDrag) return;
+  const dx = (e.clientX - cropDrag.sx) / cropDrag.rect.width;
+  const dy = (e.clientY - cropDrag.sy) / cropDrag.rect.height;
+  const MIN = 0.08;
+  const { ox, oy, ow, oh, mode } = cropDrag;
+  if (mode === 'move') {
+    cropState.x = Math.min(Math.max(0, ox + dx), 1 - ow);
+    cropState.y = Math.min(Math.max(0, oy + dy), 1 - oh);
+  } else {
+    let left = ox;
+    let top = oy;
+    let right = ox + ow;
+    let bottom = oy + oh;
+    if (mode.includes('w')) left = Math.min(Math.max(0, ox + dx), right - MIN);
+    if (mode.includes('e')) right = Math.max(Math.min(1, ox + ow + dx), left + MIN);
+    if (mode.includes('n')) top = Math.min(Math.max(0, oy + dy), bottom - MIN);
+    if (mode.includes('s')) bottom = Math.max(Math.min(1, oy + oh + dy), top + MIN);
+    cropState.x = left;
+    cropState.y = top;
+    cropState.w = right - left;
+    cropState.h = bottom - top;
   }
-  if (res.status === 501) return null; // not configured -> fall back
-  if (!res.ok) return null;
-  const data = await res.json().catch(() => null);
-  const r = data && data.receipt;
-  if (!r) return null;
-  if (DEBUG) debugLog(`cloud receipt: ${r.items ? r.items.length : 0} items, store=${r.store || '?'}, total=${r.total}`);
-  if (!r.items || !r.items.length) return { ...r, items: [] };
-  const items = r.items.map((it) => ({
-    description: it.description,
-    price: Number(it.price) || 0,
-    qty: it.qty || 1,
-    taxable: true,
-    deptKey: categorize({ description: it.description }).key,
-  }));
-  return { items, subtotal: r.subtotal, tax: r.tax, total: r.total, date: r.date, store: r.store };
+  positionCropBox();
+}
+function cropPointerUp(e) {
+  cropDrag = null;
+  try { els.cropStage.releasePointerCapture(e.pointerId); } catch (_) {}
+}
+
+function cropScanNow() {
+  if (!cropState || !cropState.base) {
+    closeCropModal();
+    return;
+  }
+  const { base, x, y, w, h, file } = cropState;
+  const sx = Math.round(x * base.width);
+  const sy = Math.round(y * base.height);
+  const sw = Math.max(1, Math.round(w * base.width));
+  const sh = Math.max(1, Math.round(h * base.height));
+  const out = document.createElement('canvas');
+  out.width = sw;
+  out.height = sh;
+  out.getContext('2d').drawImage(base, sx, sy, sw, sh, 0, 0, sw, sh);
+  out.toBlob(
+    (blob) => {
+      closeCropModal();
+      runReceiptOcr(blob || file);
+    },
+    'image/jpeg',
+    0.95
+  );
 }
 
 async function runReceiptOcr(file) {
-  // 1) Cloud parser first (high accuracy) when available.
-  try {
-    const cloud = await cloudParseReceipt(file);
-    if (cloud && cloud.items.length) {
-      setStatus('', '');
-      openReceiptModal(cloud);
-      return;
-    }
-  } catch (_) {}
-
-  // 2) On-device fallback (Tesseract.js).
   setStatus('Loading receipt scanner…', 'busy');
   let Tesseract;
   try {
     Tesseract = await loadTesseract();
   } catch (_) {
-    setStatus('Couldn’t read the receipt. Check your connection and try again.', 'error');
+    setStatus('Couldn’t load the receipt scanner. Check your connection and try again.', 'error');
     return;
   }
   setStatus('Reading your receipt…', 'busy');
@@ -1211,7 +1305,7 @@ async function runReceiptOcr(file) {
       debugLog(`receipt OCR: ${text.length} chars, ${parsed.items.length} items, store=${parsed.store || '?'}\n--- raw ---\n${text.slice(0, 1200)}`);
     }
     if (!parsed.items.length) {
-      setStatus('Couldn’t read this receipt. Tip: fill the frame with just the receipt, lay it flat in good light. Or add items below.', 'warn');
+      setStatus('Couldn’t read this receipt. Tip: crop to just the receipt, lay it flat in good light. Or add items below.', 'warn');
     } else {
       setStatus('', '');
     }
@@ -2069,7 +2163,25 @@ els.pickReceiptBtn.addEventListener('click', () => {
 els.receiptFile.addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = ''; // allow re-selecting the same file
-  if (f) runReceiptOcr(f);
+  if (f) openCropModal(f);
+});
+// Crop & rotate controls
+els.cropStage.addEventListener('pointerdown', cropPointerDown);
+els.cropStage.addEventListener('pointermove', cropPointerMove);
+els.cropStage.addEventListener('pointerup', cropPointerUp);
+els.cropStage.addEventListener('pointercancel', cropPointerUp);
+els.cropRotL.addEventListener('click', () => { cropState.rotation -= 90; renderCropBase(); });
+els.cropRotR.addEventListener('click', () => { cropState.rotation += 90; renderCropBase(); });
+els.cropReset.addEventListener('click', () => {
+  cropState.rotation = 0;
+  cropState.x = 0.04; cropState.y = 0.04; cropState.w = 0.92; cropState.h = 0.92;
+  renderCropBase();
+});
+els.cropScan.addEventListener('click', cropScanNow);
+els.cropWhole.addEventListener('click', () => { const f = cropState.file; closeCropModal(); runReceiptOcr(f); });
+els.cropClose.addEventListener('click', closeCropModal);
+els.cropModal.addEventListener('click', (e) => {
+  if (e.target.classList.contains('scrim')) closeCropModal();
 });
 els.receiptClose.addEventListener('click', closeReceiptModal);
 els.rcCancel.addEventListener('click', closeReceiptModal);
