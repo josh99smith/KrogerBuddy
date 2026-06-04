@@ -1285,7 +1285,82 @@ function cropScanNow() {
   );
 }
 
+// ---- PaddleOCR (PP-OCR) — heavier, higher-accuracy local engine ------------
+let paddlePromise = null;
+function loadPaddleOcr() {
+  if (window.__kbPaddle) return Promise.resolve(window.__kbPaddle);
+  if (paddlePromise) return paddlePromise;
+  paddlePromise = (async () => {
+    const mod = await import('https://esm.sh/@paddlejs-models/ocr@1.1.1');
+    const ocr = mod && mod.init ? mod : mod.default;
+    if (!ocr || !ocr.init) throw new Error('paddle module shape');
+    await ocr.init();
+    window.__kbPaddle = ocr;
+    return ocr;
+  })();
+  paddlePromise.catch(() => {
+    paddlePromise = null;
+  });
+  return paddlePromise;
+}
+
+function blobToImage(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = (e) => {
+      URL.revokeObjectURL(url);
+      reject(e);
+    };
+    img.src = url;
+  });
+}
+
+// Recognize with PaddleOCR and reconstruct top-to-bottom text lines.
+async function paddleOcrText(file) {
+  const ocr = await loadPaddleOcr();
+  const img = await blobToImage(file);
+  const res = await ocr.recognize(img);
+  const texts = res && (res.text || res.texts || res);
+  if (!Array.isArray(texts)) return typeof res === 'string' ? res : '';
+  const points = res && (res.points || res.boxes);
+  if (Array.isArray(points) && points.length === texts.length) {
+    const rows = texts.map((t, i) => {
+      const pts = points[i] || [];
+      const ys = pts.map((p) => (Array.isArray(p) ? p[1] : 0));
+      const xs = pts.map((p) => (Array.isArray(p) ? p[0] : 0));
+      return { t: String(t), y: ys.length ? Math.min(...ys) : i, x: xs.length ? Math.min(...xs) : 0 };
+    });
+    rows.sort((a, b) => a.y - b.y || a.x - b.x);
+    return rows.map((r) => r.t).join('\n');
+  }
+  return texts.map(String).join('\n');
+}
+
 async function runReceiptOcr(file) {
+  setStatus('Reading your receipt…', 'busy');
+
+  // 1) High-accuracy local engine (PaddleOCR) first.
+  try {
+    setStatus('Loading high-accuracy scanner…', 'busy');
+    const text = await paddleOcrText(file);
+    setStatus('Reading your receipt…', 'busy');
+    const parsed = parseReceiptText(text || '');
+    if (DEBUG) debugLog(`paddle OCR: ${(text || '').length} chars, ${parsed.items.length} items\n--- raw ---\n${(text || '').slice(0, 1200)}`);
+    if (parsed.items.length) {
+      setStatus('', '');
+      openReceiptModal(parsed);
+      return;
+    }
+  } catch (err) {
+    if (DEBUG) debugLog(`paddle failed: ${(err && err.message) || err}`);
+  }
+
+  // 2) Fallback: on-device Tesseract.
   setStatus('Loading receipt scanner…', 'busy');
   let Tesseract;
   try {
@@ -1302,7 +1377,7 @@ async function runReceiptOcr(file) {
     const text = data && data.text ? data.text : '';
     const parsed = parseReceiptText(text);
     if (DEBUG) {
-      debugLog(`receipt OCR: ${text.length} chars, ${parsed.items.length} items, store=${parsed.store || '?'}\n--- raw ---\n${text.slice(0, 1200)}`);
+      debugLog(`tesseract OCR: ${text.length} chars, ${parsed.items.length} items\n--- raw ---\n${text.slice(0, 1200)}`);
     }
     if (!parsed.items.length) {
       setStatus('Couldn’t read this receipt. Tip: crop to just the receipt, lay it flat in good light. Or add items below.', 'warn');
